@@ -156,23 +156,33 @@ def compose_exchange_universe(
     coverage_counts = {
         ExchangeCoverageScope.FULL_EXCHANGE.value: 0,
         ExchangeCoverageScope.INDEX_FALLBACK.value: 0,
+        ExchangeCoverageScope.AGGREGATE_VENUES.value: 0,
     }
 
+    acquisitions: dict[str, list] = {}
     for entry in policy.enabled_entries:
+        acquisitions.setdefault(
+            entry.acquisition_code,
+            [],
+        ).append(entry)
         coverage_counts[entry.coverage_scope.value] += 1
 
-        provider = registry.get(entry.exchange_code)
+    for acquisition_code in sorted(acquisitions):
+        entries = acquisitions[acquisition_code]
+        entry = entries[0]
+
+        provider = registry.get(acquisition_code)
 
         if provider is None:
             failed_provider_count += 1
             diagnostics.append(
                 UniverseCompositionDiagnostic(
-                    exchange_code=entry.exchange_code,
+                    exchange_code=acquisition_code,
                     provider_id=entry.provider_id,
                     code="MISSING_PROVIDER",
                     message=(
                         "No provider registered for enabled exchange "
-                        f"{entry.exchange_code}"
+                        f"{acquisition_code}"
                     ),
                 )
             )
@@ -182,7 +192,7 @@ def compose_exchange_universe(
             failed_provider_count += 1
             diagnostics.append(
                 UniverseCompositionDiagnostic(
-                    exchange_code=entry.exchange_code,
+                    exchange_code=acquisition_code,
                     provider_id=entry.provider_id,
                     code="PROVIDER_ID_MISMATCH",
                     message=(
@@ -195,7 +205,7 @@ def compose_exchange_universe(
             continue
 
         request = ExchangeSymbolRequest(
-            entry.exchange_code
+            acquisition_code
         )
 
         try:
@@ -204,7 +214,7 @@ def compose_exchange_universe(
             failed_provider_count += 1
             diagnostics.append(
                 UniverseCompositionDiagnostic(
-                    exchange_code=entry.exchange_code,
+                    exchange_code=acquisition_code,
                     provider_id=entry.provider_id,
                     code="PROVIDER_EXCEPTION",
                     message=(
@@ -219,7 +229,7 @@ def compose_exchange_universe(
             failed_provider_count += 1
             diagnostics.append(
                 UniverseCompositionDiagnostic(
-                    exchange_code=entry.exchange_code,
+                    exchange_code=acquisition_code,
                     provider_id=entry.provider_id,
                     code="INVALID_PROVIDER_RESULT",
                     message=(
@@ -235,12 +245,12 @@ def compose_exchange_universe(
         if (
             result.provider_id != entry.provider_id
             or result.request.exchange_code
-            != entry.exchange_code
+            != acquisition_code
         ):
             failed_provider_count += 1
             diagnostics.append(
                 UniverseCompositionDiagnostic(
-                    exchange_code=entry.exchange_code,
+                    exchange_code=acquisition_code,
                     provider_id=entry.provider_id,
                     code="INVALID_PROVIDER_RESULT",
                     message=(
@@ -266,7 +276,7 @@ def compose_exchange_universe(
             failed_provider_count += 1
             diagnostics.append(
                 UniverseCompositionDiagnostic(
-                    exchange_code=entry.exchange_code,
+                    exchange_code=acquisition_code,
                     provider_id=entry.provider_id,
                     code="COVERAGE_METADATA_MISMATCH",
                     message=(
@@ -277,20 +287,31 @@ def compose_exchange_universe(
             )
             continue
 
-        mismatched_listing = next(
-            (
-                listing
-                for listing in result.listings
-                if listing.exchange != entry.exchange_code
-            ),
-            None,
+        aggregate = (
+            entry.coverage_scope
+            is ExchangeCoverageScope.AGGREGATE_VENUES
+        )
+        enabled_outputs = {
+            item.exchange_code for item in entries
+        }
+        mismatched_listing = (
+            None
+            if aggregate
+            else next(
+                (
+                    listing
+                    for listing in result.listings
+                    if listing.exchange not in enabled_outputs
+                ),
+                None,
+            )
         )
 
         if mismatched_listing is not None:
             failed_provider_count += 1
             diagnostics.append(
                 UniverseCompositionDiagnostic(
-                    exchange_code=entry.exchange_code,
+                    exchange_code=acquisition_code,
                     provider_id=entry.provider_id,
                     code="LISTING_EXCHANGE_MISMATCH",
                     message=(
@@ -304,7 +325,7 @@ def compose_exchange_universe(
         for item in result.diagnostics:
             diagnostics.append(
                 UniverseCompositionDiagnostic(
-                    exchange_code=entry.exchange_code,
+                    exchange_code=acquisition_code,
                     provider_id=entry.provider_id,
                     code=item.code,
                     message=item.message,
@@ -326,6 +347,7 @@ def compose_exchange_universe(
         "enabled_exchange_count": len(
             policy.enabled_entries
         ),
+        "acquisition_count": len(acquisitions),
         "registered_provider_count": len(registry),
         "executed_provider_count": len(provider_results),
         "successful_provider_count": successful_provider_count,
@@ -337,6 +359,9 @@ def compose_exchange_universe(
         ],
         "index_fallback_count": coverage_counts[
             ExchangeCoverageScope.INDEX_FALLBACK.value
+        ],
+        "aggregate_venue_count": coverage_counts[
+            ExchangeCoverageScope.AGGREGATE_VENUES.value
         ],
     }
 

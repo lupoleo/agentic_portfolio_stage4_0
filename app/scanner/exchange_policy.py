@@ -7,6 +7,7 @@ from enum import Enum
 class ExchangeCoverageScope(str, Enum):
     FULL_EXCHANGE = "FULL_EXCHANGE"
     INDEX_FALLBACK = "INDEX_FALLBACK"
+    AGGREGATE_VENUES = "AGGREGATE_VENUES"
 
 
 @dataclass(frozen=True)
@@ -15,15 +16,23 @@ class EnabledExchange:
     provider_id: str
     coverage_scope: ExchangeCoverageScope
     enabled: bool = True
+    acquisition_code: str | None = None
 
     def __post_init__(self) -> None:
         exchange_code = self.exchange_code.strip().upper()
         provider_id = self.provider_id.strip()
+        acquisition_code = (
+            self.acquisition_code.strip().upper()
+            if self.acquisition_code is not None
+            else exchange_code
+        )
 
         if not exchange_code:
             raise ValueError("exchange_code must not be blank")
         if not provider_id:
             raise ValueError("provider_id must not be blank")
+        if not acquisition_code:
+            raise ValueError("acquisition_code must not be blank")
 
         try:
             coverage_scope = ExchangeCoverageScope(
@@ -49,6 +58,11 @@ class EnabledExchange:
             self,
             "coverage_scope",
             coverage_scope,
+        )
+        object.__setattr__(
+            self,
+            "acquisition_code",
+            acquisition_code,
         )
 
 
@@ -82,6 +96,28 @@ class EnabledExchangePolicy:
                     f"{entry.exchange_code}"
                 )
             by_exchange[entry.exchange_code] = entry
+
+        acquisition_contracts: dict[
+            str,
+            tuple[str, ExchangeCoverageScope],
+        ] = {}
+
+        for entry in by_exchange.values():
+            contract = (
+                entry.provider_id,
+                entry.coverage_scope,
+            )
+            previous = acquisition_contracts.get(
+                entry.acquisition_code
+            )
+            if previous is not None and previous != contract:
+                raise ValueError(
+                    "conflicting acquisition contract for "
+                    f"{entry.acquisition_code}"
+                )
+            acquisition_contracts[
+                entry.acquisition_code
+            ] = contract
 
         ordered = tuple(
             sorted(
@@ -146,4 +182,70 @@ def scanner_v1_pilot_policy() -> EnabledExchangePolicy:
                 ),
             ),
         ),
+    )
+
+
+def scanner_v1_production_policy() -> EnabledExchangePolicy:
+    """Frozen S2.1H production acquisition and venue policy."""
+    eodhd_europe = (
+        "AS",
+        "AT",
+        "BR",
+        "BUD",
+        "CO",
+        "HE",
+        "LS",
+        "LSE",
+        "MC",
+        "OL",
+        "PA",
+        "PR",
+        "RO",
+        "ST",
+        "SW",
+        "VI",
+        "WAR",
+        "XETRA",
+    )
+    us_venues = (
+        "AMEX",
+        "BATS",
+        "NASDAQ",
+        "NYSE",
+        "NYSE ARCA",
+    )
+
+    entries = [
+        EnabledExchange(
+            exchange_code=code,
+            provider_id="eodhd-exchange-symbols",
+            coverage_scope=ExchangeCoverageScope.FULL_EXCHANGE,
+        )
+        for code in eodhd_europe
+    ]
+    entries.extend(
+        EnabledExchange(
+            exchange_code=code,
+            provider_id="eodhd-us-aggregate-symbols",
+            coverage_scope=(
+                ExchangeCoverageScope.AGGREGATE_VENUES
+            ),
+            acquisition_code="US",
+        )
+        for code in us_venues
+    )
+    entries.append(
+        EnabledExchange(
+            exchange_code="BIT",
+            provider_id="borsa-italiana-ftse-mib",
+            coverage_scope=(
+                ExchangeCoverageScope.INDEX_FALLBACK
+            ),
+        )
+    )
+
+    return EnabledExchangePolicy(
+        policy_id="scanner-v1-production",
+        policy_version="1",
+        entries=tuple(entries),
     )

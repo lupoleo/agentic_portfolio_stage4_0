@@ -94,3 +94,6 @@ README_*FIX*.txt
 
 # Generated duplicate of Markdown roadmap
 CIO_DEMO_ROADMAP.pdf
+
+# Salesforce CLI local project state
+.sf/
