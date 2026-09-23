@@ -6,15 +6,16 @@
 | --- | --- |
 | Role | Current architecture source of truth for Stage 4.0 |
 | Status | ACTIVE |
-| Architecture baseline | `8b5d34071afd38427ed14f14eebb6573f08d6d14` |
+| Architecture baseline | `92b9518bd9d45ff197efd9d3b98d4e08d277c9e6` |
 | Baseline date | 2026-09-23 |
-| Last closed checkpoint | E2E-S2.2D — History Quality & Liquidity Gates |
-| Regression baseline | 1467 tests passed; 151 subtests passed |
+| Last closed checkpoint | E2E-S2.2E — Candidate Set Assembly & Portfolio Watch Set |
+| Active checkpoint | Scanner-to-Research integration — NEXT / PROPOSED |
+| Regression baseline | 1491 tests passed; 162 subtests passed |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
 This document defines the target end-to-end architecture after the closure of
-E2E-S2.2D. It supersedes the current-development architecture sections of the
+E2E-S2.2E. It supersedes the current-development architecture sections of the
 Stage 3.0 documents without deleting or rewriting their historical record.
 
 Implementation details remain governed by code, tests, accepted checkpoint
@@ -613,8 +614,8 @@ meaning of a policy decision.
 | Instrument eligibility | E2E-S2.2B | CLOSED |
 | Yahoo mapping and verification | E2E-S2.2C | CLOSED |
 | History quality and liquidity | E2E-S2.2D | CLOSED |
-| Candidate/watch-set assembly | E2E-S2.2E | NEXT / PROPOSED |
-| Scanner-to-Research integration | Later Stage 4.0 checkpoint | PLANNED |
+| Candidate/watch-set assembly | E2E-S2.2E | CLOSED |
+| Scanner-to-Research integration | Later Stage 4.0 checkpoint | NEXT / PROPOSED |
 | Full selected-opportunity dry run | Later Stage 4.0 checkpoint | PLANNED |
 
 “Closed” means accepted by its checkpoint evidence. It does not mean that
@@ -622,15 +623,15 @@ future providers or product classes are automatically supported.
 
 ---
 
-## 18. Next checkpoint: E2E-S2.2E
+## 18. Closed checkpoint: E2E-S2.2E
 
-The proposed next checkpoint is:
+The closed checkpoint is:
 
 **E2E-S2.2E — Candidate Set Assembly & Portfolio Watch Set**
 
 ### 18.1 Responsibilities
 
-S2.2E should:
+S2.2E implements:
 
 1. consume closed S2.2A–S2.2D decisions;
 2. assemble only fully admissible new Scanner candidates;
@@ -658,7 +659,36 @@ S2.2E should:
 - Cache-only replay is identical to the original accepted assembly.
 - The full regression suite remains green.
 
-The checkpoint contract should be reviewed and approved before implementation.
+The contract was approved on 2026-09-23. The implementation uses policy
+`scanner-v1-candidate-watch-assembly`, version `1`.
+
+For `STANDARD`, liquidity must pass. For a verified `RECENT_LISTING`, the only
+permitted liquidity exception is `UNDETERMINED` with reason
+`INSUFFICIENT_ALIGNED_VOLUME_HISTORY`, no failed gate, verified listing-start
+evidence and no unrelated undetermined gate. This preserves the reviewed IPO
+route without weakening identity, freshness, calendar, price, FX or coverage
+requirements.
+
+### 18.3 Closure evidence
+
+The final cache-only audit consumed 31,808 eligibility decisions, admitted two
+fresh `STANDARD` candidates (`BIT:A2A` and `XETRA:SAP`), retained all 33
+non-flat Fineco positions and assembled 35 `READY` research members. The
+assembly made zero network calls and emitted fingerprint
+`881241c264bde82f3a9633d5766cc21c07a658bc11f43abc2202edd29aff1064`.
+
+Expected negative decisions remained explicit: 17,178 ineligible instruments,
+57 classification reviews, 129 unresolved mappings, 14,439 missing upstream
+history results, two blocked histories and one verification not ready. The
+complete regression closed at 1,491 tests and 162 subtests passed.
+
+### 18.4 Next proposed checkpoint
+
+Scanner-to-Research integration is now the next proposed Stage 4.0 checkpoint.
+It should consume the immutable Research Watch Universe, preserve member and
+source provenance through Research and Opportunity Scoring, and persist zero
+or more `TradeOpportunity` records without bypassing the existing evidence and
+scoring contracts. Its contract must be reviewed before implementation.
 
 ---
 
@@ -721,6 +751,10 @@ whether they:
 - implement an existing contract;
 - refine an explicitly open boundary;
 - or reopen a frozen contract.
+
+Every Stage 4.0 checkpoint must update this file before closure. A checkpoint
+is not `CLOSED` until the architecture update has passed validation and has
+been committed and pushed with, or immediately after, the implementation.
 
 Any reopened frozen contract requires:
 
