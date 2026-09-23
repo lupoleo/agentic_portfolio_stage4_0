@@ -11,7 +11,7 @@ from app.scanner.history_quality_contracts import SessionCalendar, MarketSession
 
 EXPECTED_CALENDAR_VERSION = "4.13.2"
 # Only mappings exercised in the initial calendar acceptance are enabled here.
-CALENDAR_BINDINGS = MappingProxyType({"BIT": "XMIL", "XETRA": "XETR", "NYSE": "XNYS"})
+CALENDAR_BINDINGS = MappingProxyType({"BIT": "XMIL", "XETRA": "XETR", "NYSE": "XNYS", "NASDAQ": "NASDAQ"})
 
 
 @dataclass(frozen=True)

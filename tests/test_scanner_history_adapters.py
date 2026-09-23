@@ -42,9 +42,15 @@ class CalendarAdapterTests(unittest.TestCase):
             with self.subTest(venue=venue):
                 self.assertEqual(self.build(venue).calendar_code, code)
 
-    def test_no_unvalidated_nasdaq_fallback(self):
+    def test_nasdaq_binding_uses_library_alias_and_preserves_listing_venue(self):
+        result = self.build("NASDAQ")
+        self.assertEqual(self.calls[0][0], "NASDAQ")
+        self.assertEqual(result.calendar_code, "NASDAQ")
+        self.assertEqual(result.calendar.exchange, "NASDAQ")
+
+    def test_no_unknown_venue_fallback(self):
         with self.assertRaises(ValueError):
-            self.build("NASDAQ")
+            self.build("UNKNOWN")
         self.assertFalse(self.calls)
 
     def test_wrong_version_fails_before_factory(self):
@@ -135,6 +141,37 @@ class HistoryAdapterTests(unittest.TestCase):
         self.assertIsNone(result.snapshot.bars[0].volume)
         self.assertEqual(result.ambiguous_zero_volume_sessions, (self.start,))
         self.assertEqual(result.diagnostics[0].code, "ZERO_VOLUME_AMBIGUOUS")
+
+    def test_empty_provider_session_is_explicit_and_preserved(self):
+        session = self.frame.index[1]
+        self.frame.loc[
+            session,
+            ["Open", "High", "Low", "Close", "Adj Close"],
+        ] = float("nan")
+        self.frame.loc[session, "Volume"] = 0
+
+        result = self.fetch()
+
+        bar = result.snapshot.bars[1]
+        self.assertIsNone(bar.open)
+        self.assertIsNone(bar.high)
+        self.assertIsNone(bar.low)
+        self.assertIsNone(bar.close)
+        self.assertIsNone(bar.adjusted_close)
+        self.assertIsNone(bar.volume)
+
+        diagnostic_codes = {
+            diagnostic.code
+            for diagnostic in result.diagnostics
+        }
+        self.assertIn(
+            "EMPTY_PROVIDER_SESSION",
+            diagnostic_codes,
+        )
+        self.assertIn(
+            "ZERO_VOLUME_AMBIGUOUS",
+            diagnostic_codes,
+        )
 
     def test_negative_volume_reaches_quality_gate(self):
         self.frame.loc[self.frame.index[0], "Volume"] = -1

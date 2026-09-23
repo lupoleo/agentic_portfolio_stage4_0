@@ -121,8 +121,45 @@ class YahooHistorySnapshotProvider:
                     snapshot = frame_to_snapshot(captured.frame, listing=listing, mapping=mapping,
                         metadata=captured.metadata, start=start, end=end,
                         fetched_at=verification.checked_at, timezone=timezone, provider_version=provider_version)
+                    local = captured.frame.index.tz_convert(
+                        ZoneInfo(timezone)
+                    )
+                    price_columns = (
+                        "Open",
+                        "High",
+                        "Low",
+                        "Close",
+                    )
+                    empty_price_sessions = tuple(
+                        sorted(
+                            local[position].date()
+                            for position in range(
+                                len(captured.frame)
+                            )
+                            if all(
+                                pd.isna(
+                                    captured.frame.iloc[
+                                        position
+                                    ][column]
+                                )
+                                for column in price_columns
+                            )
+                        )
+                    )
+                    if empty_price_sessions:
+                        diagnostics.append(
+                            MarketDataDiagnostic(
+                                "EMPTY_PROVIDER_SESSION",
+                                (
+                                    f"{len(empty_price_sessions)} "
+                                    "provider session rows have no "
+                                    "OHLC values; retained for "
+                                    "downstream price and freshness "
+                                    "gates"
+                                ),
+                            )
+                        )
                     if "Volume" in captured.frame:
-                        local = captured.frame.index.tz_convert(ZoneInfo(timezone))
                         zero_sessions = tuple(sorted(local[i].date() for i, v in enumerate(captured.frame["Volume"])
                                                      if isinstance(v, Real) and v == 0))
                         if zero_sessions:

@@ -42,8 +42,8 @@ def run_pilot(
     listing_references=None,
     listing_keys=None,
 ):
-    if not venues or any(v not in {"BIT", "XETRA", "NYSE"} for v in venues):
-        raise ValueError("Pilot supports BIT, XETRA and NYSE only")
+    if not venues or any(v not in {"BIT", "XETRA", "NYSE", "NASDAQ"} for v in venues):
+        raise ValueError("Pilot supports BIT, XETRA, NYSE and NASDAQ only")
 
     if not math.isfinite(pause_seconds) or not 0 <= pause_seconds <= 30:
         raise ValueError("Invalid pause")
@@ -90,6 +90,7 @@ def run_pilot(
         "BIT": "EUR",
         "XETRA": "EUR",
         "NYSE": "USD",
+        "NASDAQ": "USD",
     }
 
     if any(
@@ -155,7 +156,7 @@ def run_pilot(
                 row["symbol"],
                 row["exchange"],
                 row["exchange"],
-                "US" if row["exchange"] == "NYSE" else "EUROPE",
+                "US" if row["exchange"] in {"NYSE", "NASDAQ"} else "EUROPE",
                 currency=row.get("currency"),
                 instrument_type=row.get("raw_instrument_type"),
                 isin=row.get("isin"),
