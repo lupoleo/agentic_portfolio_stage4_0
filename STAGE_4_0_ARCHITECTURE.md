@@ -8,14 +8,14 @@
 | Status | ACTIVE |
 | Architecture baseline | `92b9518bd9d45ff197efd9d3b98d4e08d277c9e6` |
 | Baseline date | 2026-09-23 |
-| Last closed checkpoint | E2E-S2.2E — Candidate Set Assembly & Portfolio Watch Set |
-| Active checkpoint | Scanner-to-Research integration — NEXT / PROPOSED |
-| Regression baseline | 1491 tests passed; 162 subtests passed |
+| Last closed checkpoint | E2E-S2.2F — Scanner-to-Research Integration |
+| Active checkpoint | Full selected-opportunity dry run — NEXT / PROPOSED |
+| Regression baseline | 1503 tests passed; 162 subtests passed |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
 This document defines the target end-to-end architecture after the closure of
-E2E-S2.2E. It supersedes the current-development architecture sections of the
+E2E-S2.2F. It supersedes the current-development architecture sections of the
 Stage 3.0 documents without deleting or rewriting their historical record.
 
 Implementation details remain governed by code, tests, accepted checkpoint
@@ -615,8 +615,8 @@ meaning of a policy decision.
 | Yahoo mapping and verification | E2E-S2.2C | CLOSED |
 | History quality and liquidity | E2E-S2.2D | CLOSED |
 | Candidate/watch-set assembly | E2E-S2.2E | CLOSED |
-| Scanner-to-Research integration | Later Stage 4.0 checkpoint | NEXT / PROPOSED |
-| Full selected-opportunity dry run | Later Stage 4.0 checkpoint | PLANNED |
+| Scanner-to-Research integration | E2E-S2.2F | CLOSED |
+| Full selected-opportunity dry run | Later Stage 4.0 checkpoint | NEXT / PROPOSED |
 
 “Closed” means accepted by its checkpoint evidence. It does not mean that
 future providers or product classes are automatically supported.
@@ -684,7 +684,7 @@ complete regression closed at 1,491 tests and 162 subtests passed.
 
 ### 18.4 Next proposed checkpoint
 
-Scanner-to-Research integration is now the next proposed Stage 4.0 checkpoint.
+Scanner-to-Research integration was the next proposed Stage 4.0 checkpoint after S2.2E.
 It should consume the immutable Research Watch Universe, preserve member and
 source provenance through Research and Opportunity Scoring, and persist zero
 or more `TradeOpportunity` records without bypassing the existing evidence and
@@ -692,7 +692,65 @@ scoring contracts. Its contract must be reviewed before implementation.
 
 ---
 
-## 19. Stage 4.0 first complete E2E target
+## 19. Closed checkpoint: E2E-S2.2F
+
+The approved Scanner-to-Research integration contract consumes the immutable
+S2.2E Research Watch Universe without reopening the frozen AI-8C.2 Research or
+AI-8C.3 Opportunity Scoring contracts.
+
+For each `NEW_CANDIDATE`, it creates independent LONG and SHORT research
+hypotheses so the adapter cannot inject directional bias. A
+`CURRENT_POSITION` creates a `NO_ACTION` monitoring hypothesis that can produce
+research but never automatically creates a new opportunity.
+
+The integration persists deterministic Market Scans, Scan Candidates, evidence
+bundles, Research, Opportunity Scores and explicit per-hypothesis outcomes.
+Only a complete, sufficiently evidenced and sufficiently confident directional
+hypothesis may create a broker-independent `TradeOpportunity`. A separate
+provenance record links that opportunity to the Watch Universe, subject,
+candidate, research, score, evidence, inferences and policy versions.
+
+The run is resumable. Completed hypotheses are not fetched or inferred again;
+failed, degraded and cache-miss hypotheses remain retriable. Cache-only replay
+makes no provider or LLM calls. A zero-opportunity run is a valid outcome.
+
+The implementation is present on the dedicated S2.2F branch and is closed by
+the evidence below.
+
+### 19.1 Closure evidence
+
+The accepted S2.2E Watch Universe contained 35 `READY` members and deterministically
+generated 37 hypotheses: independent LONG and SHORT hypotheses for the two new
+candidates, plus 33 portfolio-monitoring hypotheses.
+
+The cache-only pilot preserved run ID
+`s2f-444373de3ccd1e6f41439998`, made no provider or LLM calls, created no
+opportunity and recorded four retriable `CACHE_ONLY_MISS` outcomes. A defect
+found by this pilot was corrected so `PENDING`, `FAILED` and `DEGRADED`
+outcomes are never reported as completed hypotheses.
+
+The bounded live pilot processed three hypotheses. `2BTC.DE` completed as
+`PORTFOLIO_MONITOR` with reason `MONITOR_ONLY`. Independent `A2A.MI` LONG and
+SHORT research both stopped fail-closed with `RESEARCH_NOT_COMPLETE`. Zero
+`TradeOpportunity` records were produced, which is a valid integration result.
+
+A terminal resume used a deliberately invalid model name and completed without
+calling it. Terminal outcome payloads and timestamps remained unchanged,
+proving deterministic skip behavior. The focused S2.2F suite closed at 12
+tests passed. The complete project regression closed at 1,503 tests and 162
+subtests passed.
+
+### 19.2 Next proposed checkpoint
+
+The next proposed Stage 4.0 checkpoint is the full selected-opportunity dry
+run. Its contract must be reviewed and approved before implementation. It
+should start from one explicitly selected persisted `TradeOpportunity` and
+exercise the already-frozen downstream lifecycle without enabling automatic
+execution or portfolio mutation.
+
+---
+
+## 20. Stage 4.0 first complete E2E target
 
 The first complete Stage 4.0 dry run should demonstrate:
 
@@ -716,7 +774,7 @@ rejection is correct, explicit and reproducible.
 
 ---
 
-## 20. Non-goals
+## 21. Non-goals
 
 Stage 4.0 does not currently include:
 
@@ -735,7 +793,7 @@ These capabilities require separate architecture decisions and checkpoints.
 
 ---
 
-## 21. Documentation governance
+## 22. Documentation governance
 
 The document hierarchy is:
 
@@ -767,7 +825,7 @@ Any reopened frozen contract requires:
 
 ---
 
-## 22. Definition of architectural completion
+## 23. Definition of architectural completion
 
 Stage 4.0 is architecturally complete when:
 
