@@ -8,9 +8,9 @@
 | Status | ACTIVE |
 | Architecture baseline | `92b9518bd9d45ff197efd9d3b98d4e08d277c9e6` |
 | Baseline date | 2026-09-23 |
-| Last closed checkpoint | E2E-S2.2F — Scanner-to-Research Integration |
-| Active checkpoint | Full selected-opportunity dry run — NEXT / PROPOSED |
-| Regression baseline | 1503 tests passed; 162 subtests passed |
+| Last closed checkpoint | E2E-S2.2G — Full Selected-Opportunity Dry Run |
+| Active checkpoint | Stage 4.0 first complete E2E target — NEXT / PROPOSED |
+| Regression baseline | 1518 tests passed; 162 subtests passed |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -616,7 +616,7 @@ meaning of a policy decision.
 | History quality and liquidity | E2E-S2.2D | CLOSED |
 | Candidate/watch-set assembly | E2E-S2.2E | CLOSED |
 | Scanner-to-Research integration | E2E-S2.2F | CLOSED |
-| Full selected-opportunity dry run | Later Stage 4.0 checkpoint | NEXT / PROPOSED |
+| Full selected-opportunity dry run | E2E-S2.2G | CLOSED |
 
 “Closed” means accepted by its checkpoint evidence. It does not mean that
 future providers or product classes are automatically supported.
@@ -750,7 +750,68 @@ execution or portfolio mutation.
 
 ---
 
-## 20. Stage 4.0 first complete E2E target
+## 20. Closed checkpoint: E2E-S2.2G
+
+The approved checkpoint is:
+
+**E2E-S2.2G — Full Selected-Opportunity Dry Run**
+
+S2.2G is an orchestration checkpoint. It does not replace or reinterpret the
+closed Portfolio Filter, Instrument Selection, Position Sizing, Trade
+Proposal, Portfolio Simulator V2, CIO Decision or Execution Plan contracts.
+
+The run consumes at most one explicitly selected, persisted S2.2F
+`TradeOpportunity`. It validates the complete Scanner-to-Research provenance,
+requires the current portfolio snapshot, then advances through the frozen
+downstream lifecycle one stage at a time. Every stage records input and output
+identities, fingerprints, reason codes and diagnostics. A policy block stops
+the run without invoking later stages.
+
+### 20.1 Explicit operator-input boundary
+
+S2.2F correctly creates broker-independent opportunities without choosing
+capital allocation or execution parameters. Its materialized opportunities
+therefore contain neither target exposure nor maximum intended loss. The
+approved S2.2G addendum resolves that open boundary with an explicit operator
+overlay: exposure, loss limit, reference price, FX, stop and observation time.
+
+These values are persisted and fingerprinted. They are never inferred. A
+future observation or a conflict with an already persisted opportunity blocks
+the run. This preserves the semantic boundary between AI-supported opportunity
+discovery and deterministic portfolio/execution construction.
+
+### 20.2 Dry-run safety invariant
+
+The optional final Execution Plan remains subject to manual confirmation and
+is marked as a non-authorized dry run. S2.2G cannot invoke a broker adapter,
+confirm an execution or mutate the real portfolio. Its persisted counters must
+remain:
+
+```text
+broker_orders_submitted = 0
+portfolio_mutations = 0
+automatic_executions = 0
+```
+
+### 20.3 Closure evidence
+
+The focused suite passed 15 tests. The complete regression passed 1,518 tests
+and 162 subtests. Real S2.2F replay `s2f-444373de3ccd1e6f41439998`
+correctly stopped with `NO_SELECTABLE_OPPORTUNITY` as S2.2G run
+`s2g-6d56888ea50a391b9a7b0dc0`.
+
+The controlled ten-stage acceptance created a non-authorized dry-run plan and
+proved terminal replay immutability. Both paths recorded zero broker orders,
+zero portfolio mutations and zero automatic executions.
+
+### 20.4 Next proposed checkpoint
+
+The next proposed checkpoint is the Stage 4.0 first complete E2E target using
+a future evidence-supported S2.2F opportunity. It must reuse the closed S2.2G
+contract and remain manual-execution only.
+---
+
+## 21. Stage 4.0 first complete E2E target
 
 The first complete Stage 4.0 dry run should demonstrate:
 
@@ -774,7 +835,7 @@ rejection is correct, explicit and reproducible.
 
 ---
 
-## 21. Non-goals
+## 22. Non-goals
 
 Stage 4.0 does not currently include:
 
@@ -793,7 +854,7 @@ These capabilities require separate architecture decisions and checkpoints.
 
 ---
 
-## 22. Documentation governance
+## 23. Documentation governance
 
 The document hierarchy is:
 
@@ -825,7 +886,7 @@ Any reopened frozen contract requires:
 
 ---
 
-## 23. Definition of architectural completion
+## 24. Definition of architectural completion
 
 Stage 4.0 is architecturally complete when:
 
