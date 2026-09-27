@@ -8,9 +8,9 @@
 | Status | ACTIVE |
 | Architecture baseline | `92b9518bd9d45ff197efd9d3b98d4e08d277c9e6` |
 | Baseline date | 2026-09-23 |
-| Last closed checkpoint | E2E-S2.2G — Full Selected-Opportunity Dry Run |
-| Active checkpoint | Stage 4.0 first complete E2E target — NEXT / PROPOSED |
-| Regression baseline | 1518 tests passed; 162 subtests passed |
+| Last closed checkpoint | E2E-S2.2H — Portfolio Instrument Coverage & Leveraged-Product Risk Adapters |
+| Active checkpoint | Stage 4.0 First Complete E2E Target — NEXT / PROPOSED |
+| Regression baseline | 1532 tests passed; 162 subtests passed |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -617,6 +617,7 @@ meaning of a policy decision.
 | Candidate/watch-set assembly | E2E-S2.2E | CLOSED |
 | Scanner-to-Research integration | E2E-S2.2F | CLOSED |
 | Full selected-opportunity dry run | E2E-S2.2G | CLOSED |
+| Portfolio instrument coverage and leveraged-product risk adapters | E2E-S2.2H | CLOSED |
 
 “Closed” means accepted by its checkpoint evidence. It does not mean that
 future providers or product classes are automatically supported.
@@ -906,3 +907,41 @@ Stage 4.0 is architecturally complete when:
 
 Until those conditions are met, Stage 4.0 remains an active integration stage,
 even when individual checkpoints are closed.
+
+## 21. Closed corrective checkpoint: E2E-S2.2H
+
+E2E-S2.2H — Portfolio Instrument Coverage & Leveraged-Product Risk Adapters
+is an additive corrective checkpoint opened after the 2026-09-26 Fineco
+portfolio refresh. It does not reopen the closed S2.2D–S2.2G contracts.
+
+The checkpoint preserves every Fineco accounting market value while attaching
+reviewed direct or leveraged-proxy risk factors to five previously unsupported
+positions. Direction, data provenance, leverage application and expiry are
+explicit and fail closed. The detailed contract is recorded in
+`docs/E2E-S2.2H-PORTFOLIO-INSTRUMENT-COVERAGE.md`.
+
+### 21.1 Closure evidence
+
+The corrective checkpoint closed with 41/41 Fineco position identities,
+37 direct histories, four reviewed leveraged proxies and five exact reviewed
+instrument references. The offline audit made zero network calls.
+
+The live provider pilot validated `KER.PA`, `DIA.MI`, `FCT.MI`, `MONC.MI` and
+`BZU.MI`. The refreshed Portfolio Analysis preserved EUR 304,652.72 of Fineco
+accounting gross exposure, reported 100% total weight and persisted
+PortfolioSnapshot `SNAP-20260927-075500-6b4271`.
+
+The workbook acceptance confirmed 41 position rows, 37 direct rows and four
+proxy rows with explicit provenance. Direct provider/product price comparison
+is disabled for proxy histories. The complete regression passed 1,532 tests
+and 162 subtests.
+
+The reported 94.83% extended analytical coverage is explained by the existing
+minimum-history exclusions for `2BTC.DE`, `NBIS` and `SPCX`; it is not an
+instrument-identity or market-data mapping gap.
+
+### 21.2 Next proposed checkpoint
+
+Stage 4.0 First Complete E2E Target is restored as the next proposed
+checkpoint. Its contract must be approved before implementation. Execution
+remains manual-only and no automatic broker action is authorized.

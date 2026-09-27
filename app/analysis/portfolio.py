@@ -51,6 +51,10 @@ from app.portfolio.models import (
 from app.portfolio.ticker_resolver import (
     resolve_yahoo_symbol,
 )
+from app.portfolio.leveraged_history import (
+    build_leveraged_proxy_history,
+    leveraged_proxy_factor_id,
+)
 
 from app.reports.portfolio_report import (
     export_portfolio_analysis_to_excel,
@@ -137,6 +141,12 @@ class AnalyzedPosition:
     technical: TechnicalAnalysis
     scores: TechnicalScores
     history: pd.DataFrame
+
+    market_data_symbol: str | None = None
+    history_method: str = "DIRECT"
+    leverage_multiplier: float = 1.0
+    price_gap_comparable: bool = True
+    instrument_reference_id: str | None = None
 
 
 def analyze_portfolio(
@@ -256,11 +266,11 @@ def analyze_portfolio(
         # Find downloaded market history
         # -----------------------------------------------------
 
-        history = market_data.get(
+        provider_history = market_data.get(
             yahoo_symbol
         )
 
-        if history is None or history.empty:
+        if provider_history is None or provider_history.empty:
 
             print(
                 f"WARNING: No market data for "
@@ -269,6 +279,23 @@ def analyze_portfolio(
             )
 
             continue
+
+        history = provider_history
+        risk_factor_symbol = yahoo_symbol
+
+        if position.market_data_method == "LEVERAGED_PROXY":
+            try:
+                history = build_leveraged_proxy_history(
+                    provider_history,
+                    position.leverage_multiplier,
+                )
+                risk_factor_symbol = leveraged_proxy_factor_id(position.isin)
+            except ValueError as exc:
+                print(
+                    f"WARNING: Leveraged proxy skipped for {position.name} "
+                    f"({yahoo_symbol}): {exc}"
+                )
+                continue
 
         # -----------------------------------------------------
         # Technical analysis
@@ -282,7 +309,7 @@ def analyze_portfolio(
 
         try:
             technical = analyze_technical(
-                yahoo_symbol,
+                risk_factor_symbol,
                 history,
             )
 
@@ -319,7 +346,9 @@ def analyze_portfolio(
         # Fineco / Yahoo current-price validation
         # -----------------------------------------------------
 
-        if position.market_price != 0:
+        price_gap_comparable = position.history_is_real_product_price
+
+        if price_gap_comparable and position.market_price != 0:
 
             price_gap_pct = (
                 technical.current_price
@@ -340,12 +369,17 @@ def analyze_portfolio(
 
         analyzed_position = AnalyzedPosition(
             position=position,
-            yahoo_symbol=yahoo_symbol,
+            yahoo_symbol=risk_factor_symbol,
             weight_pct=weight_pct,
             price_gap_pct=price_gap_pct,
             technical=technical,
             scores=scores,
             history=history.copy(),
+            market_data_symbol=yahoo_symbol,
+            history_method=position.market_data_method,
+            leverage_multiplier=position.leverage_multiplier,
+            price_gap_comparable=price_gap_comparable,
+            instrument_reference_id=position.instrument_reference_id,
         )
 
         # -----------------------------------------------------
@@ -479,6 +513,13 @@ def print_price_gap_warnings(
     warnings_found = False
 
     for item in analyzed_positions:
+
+        if not item.price_gap_comparable:
+            print(
+                f"{item.yahoo_symbol:<12} "
+                f"PROXY - direct Fineco/provider price comparison not applicable"
+            )
+            continue
 
         gap = abs(
             item.price_gap_pct

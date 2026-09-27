@@ -298,7 +298,7 @@ def _build_positions(workbook, analyzed_positions, portfolio_risk) -> None:
         ws,
         "Position-level Technical, Scoring and Risk Load",
         "Position-level rows remain separate even when multiple Fineco lines resolve to the same Yahoo market factor.",
-        width=23,
+        width=27,
     )
 
     risk_by_key: dict[tuple[str, str, float], list] = {}
@@ -322,8 +322,8 @@ def _build_positions(workbook, analyzed_positions, portfolio_risk) -> None:
             p.market_value_eur,
             item.weight_pct / 100,
             p.pnl_percent / 100,
-            item.price_gap_pct / 100,
-            t.current_price,
+            item.price_gap_pct / 100 if item.price_gap_comparable else None,
+            t.current_price if item.price_gap_comparable else None,
             t.performance_1y_pct / 100,
             t.sma20,
             t.sma50,
@@ -339,13 +339,18 @@ def _build_positions(workbook, analyzed_positions, portfolio_risk) -> None:
             metric.net_weight_pct / 100 if metric else None,
             metric.volatility_load if metric else None,
             metric.technical_risk_load if metric else None,
+            item.market_data_symbol or item.yahoo_symbol,
+            item.history_method,
+            item.leverage_multiplier,
+            item.instrument_reference_id,
         ])
 
     headers = [
         "Symbol", "Asset", "Dir", "Value EUR", "Weight", "P/L", "PxGap",
-        "Yahoo Price", "1Y Performance", "SMA20", "SMA50", "vs SMA20", "vs SMA50",
+        "Direct Provider Price", "1Y Performance", "SMA20", "SMA50", "vs SMA20", "vs SMA50",
         "RSI14", "Vol20 Ann.", "RVOL", "Trend", "Momentum Score", "Technical Risk Score",
         "Alignment", "Signed Weight", "Vol Load", "Tech Risk Load",
+        "Source Symbol", "History Method", "Leverage", "Reference ID",
     ]
     table_start = start
     _make_table(ws, table_start, headers, rows, "PAPositionsTable")
@@ -358,7 +363,7 @@ def _build_positions(workbook, analyzed_positions, portfolio_risk) -> None:
             8: '#,##0.0000', 9: '0.00%;[Red](0.00%);-', 10: '#,##0.0000', 11: '#,##0.0000',
             12: '0.00%;[Red](0.00%);-', 13: '0.00%;[Red](0.00%);-', 14: '0.0',
             15: '0.00%', 16: '0.00x', 18: '0.0', 19: '0.0', 21: '0.00%;[Red](0.00%);-',
-            22: '0.00', 23: '0.00',
+            22: '0.00', 23: '0.00', 26: '0.0x',
         },
         table_start + 1,
         last,
@@ -367,6 +372,7 @@ def _build_positions(workbook, analyzed_positions, portfolio_risk) -> None:
         1: 13, 2: 34, 3: 9, 4: 15, 5: 11, 6: 11, 7: 11, 8: 14, 9: 14,
         10: 12, 11: 12, 12: 12, 13: 12, 14: 10, 15: 12, 16: 10, 17: 11,
         18: 15, 19: 18, 20: 13, 21: 13, 22: 12, 23: 14,
+        24: 15, 25: 18, 26: 10, 27: 34,
     })
     _freeze_filter_style(ws, table_start + 1)
 

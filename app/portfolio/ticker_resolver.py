@@ -69,6 +69,12 @@ def resolve_yahoo_symbol(
 
     symbol = position.broker_symbol
 
+    # A reviewed reference always wins over syntactic fallbacks. This is
+    # required for derivatives such as KERCFD.CFD, whose broker code would
+    # otherwise be incorrectly reduced to KER instead of KER.PA.
+    if position.market_data_symbol is not None:
+        return position.market_data_symbol
+
     # ---------------------------------------------------------
     # Explicit mappings first
     # ---------------------------------------------------------

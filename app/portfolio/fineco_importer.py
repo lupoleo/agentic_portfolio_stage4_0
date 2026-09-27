@@ -3,6 +3,7 @@ from pathlib import Path
 import pandas as pd
 
 from app.portfolio.models import PortfolioPosition
+from app.portfolio.instrument_reference import enrich_position
 
 
 def load_fineco_dataframe(file_path: str | Path) -> pd.DataFrame:
@@ -52,7 +53,7 @@ def safe_float(value) -> float:
 
 
 def row_to_position(row: pd.Series) -> PortfolioPosition:
-    return PortfolioPosition(
+    position = PortfolioPosition(
         name=str(row["Titolo"]),
         isin=str(row["ISIN"]),
         broker_symbol=str(row["Simbolo"]),
@@ -75,6 +76,8 @@ def row_to_position(row: pd.Series) -> PortfolioPosition:
 
         accrued_interest=safe_float(row["Rateo"]),
     )
+
+    return enrich_position(position)
 
 
 def load_fineco_positions(
