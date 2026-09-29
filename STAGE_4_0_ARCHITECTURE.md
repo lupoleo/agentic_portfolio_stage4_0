@@ -8,9 +8,9 @@
 | Status | ACTIVE |
 | Architecture baseline | `92b9518bd9d45ff197efd9d3b98d4e08d277c9e6` |
 | Baseline date | 2026-09-23 |
-| Last closed checkpoint | E2E-S2.2H — Portfolio Instrument Coverage & Leveraged-Product Risk Adapters |
-| Active checkpoint | Stage 4.0 First Complete E2E Target — NEXT / PROPOSED |
-| Regression baseline | 1532 tests passed; 162 subtests passed |
+| Last closed checkpoint | E2E-S4.0A.3 — Research Evidence Completion Bridge |
+| Active checkpoint | E2E-S4.0A — First Complete E2E Target — LIVE COMPLETION IN PROGRESS |
+| Regression baseline | 1620 tests passed; 162 subtests passed |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -618,6 +618,8 @@ meaning of a policy decision.
 | Scanner-to-Research integration | E2E-S2.2F | CLOSED |
 | Full selected-opportunity dry run | E2E-S2.2G | CLOSED |
 | Portfolio instrument coverage and leveraged-product risk adapters | E2E-S2.2H | CLOSED |
+| Stage 4.0 First Complete E2E Target | E2E-S4.0A | APPROVED / IN PROGRESS |
+| Research evidence completion bridge | E2E-S4.0A.3 | CLOSED |
 
 “Closed” means accepted by its checkpoint evidence. It does not mean that
 future providers or product classes are automatically supported.
@@ -945,3 +947,272 @@ instrument-identity or market-data mapping gap.
 Stage 4.0 First Complete E2E Target is restored as the next proposed
 checkpoint. Its contract must be approved before implementation. Execution
 remains manual-only and no automatic broker action is authorized.
+
+## 22. Active checkpoint: E2E-S4.0A
+
+E2E-S4.0A — First Complete End-to-End Target is approved and in
+progress. It is an integration and acceptance checkpoint: existing Stage 2,
+PF-1, research, CIO and dry-run business contracts remain frozen. Any
+compatibility failure must stop the run and be handled through a separately
+approved contract change.
+
+The target joins the current Fineco portfolio and Account State, portfolio
+analysis, scanner discovery and gates, candidate/watch-set assembly, research
+integration, one explicit operator selection and the existing selected-
+opportunity dry run. The orchestration layer lives under `app/e2e`; it adds
+lineage, persistence, resumability and acceptance evidence without duplicating
+domain decisions.
+
+### 22.1 First implementation block
+
+The first block introduces immutable run and stage manifests, deterministic
+fingerprints, SQLite persistence, cache-mode identity, terminal immutability and
+tests for the frozen contract and safety invariants. It does not yet execute the
+complete orchestration.
+
+### 22.2 Acceptance tracks
+
+Closure requires both a real-current-data track, which may legitimately wait,
+block or remain partial, and a deterministic controlled track that traverses the
+complete path using real business services with fixtures only at external
+provider boundaries. Both tracks must prove zero broker orders, zero portfolio
+mutations and zero automatic executions.
+
+### 22.3 Publication intent
+
+The approved architecture, contract boundaries, lineage model, safety invariants
+and final acceptance evidence are versioned as source material for publication
+in the Aleph Innovation Engineering Wiki after E2E-S4.0A closes.
+
+### 22.4 Second implementation block
+
+The second block adds the resumable E2E orchestrator and a thin adapter boundary
+around the frozen business services. It validates explicit IDs and fingerprints
+at every hand-off, reconstructs lineage from persisted stage payloads after a
+crash, treats `PARTIAL/CACHE_ONLY_MISS` as resumable and keeps completed,
+blocked, failed and operator-waiting runs immutable.
+
+The orchestrator owns only control flow, lineage and safety validation. Portfolio
+analysis, scanner discovery, watch-universe assembly, research integration and
+the selected-opportunity dry run remain owned by their existing services. A
+controlled complete path and fail-closed scenarios cover operator selection,
+cache-only behavior, lineage mismatches and downstream safety violations.
+
+### 22.5 Third implementation block
+
+Block 3 adds canonical runtime wiring and a live command without changing
+frozen domain contracts. PortfolioSnapshot, PortfolioRiskState, AccountState
+and S2.2B-D reports are explicit and fingerprinted; no latest lookup is
+allowed. The runtime delegates to S2.2E, S2.2F and S2.2G and retains the exact
+watch report path for restart-safe resume.
+
+### 22.7 Corrective sub-checkpoint: E2E-S4.0A.1
+
+Real directional validation on A2A and SAP completed symmetrically and failed
+closed because the available research evidence was incomplete. The approved
+bounded candidate-replenishment layer advances to a canonical unattempted
+scanner frontier when all current directional hypotheses are terminal and no
+selectable opportunity exists. It preserves all S2.2 contracts and quality
+thresholds, isolates portfolio monitoring from candidate discovery, limits
+LIVE work to two listings per wave, five waves and one transient retry, and
+persists every wave as append-only evidence. Implementation is in progress.
+
+### 22.8 Bounded replenishment orchestration
+
+The second E2E-S4.0A.1 implementation block adds a resumable outer orchestration
+service. It consumes the deterministic frontier planner, executes at most two
+listings per wave, preserves LONG/SHORT symmetry and continues until a selectable
+`TradeOpportunity` exists. Persisted plan fingerprints are replayed rather than
+executed again. Five-wave and one-retry budgets remain fail-closed, and all
+broker-order, portfolio-mutation and automatic-execution counters remain zero.
+The remaining block connects this tested control loop to LIVE history acquisition
+and child S4.0A runs.
+
+### 22.9 LIVE candidate-replenishment adapter
+
+The third E2E-S4.0A.1 implementation block connects the bounded orchestration
+loop to existing S2.2D history acquisition, S2.2E watch-universe assembly,
+S2.2F research/scoring and child S4.0A lineage. Each wave is limited to two
+listings and four symmetric directional hypotheses. Terminal investment-quality
+exclusions advance the canonical frontier; the first selectable opportunity
+stops replenishment and returns control to explicit operator selection.
+CACHE_ONLY cannot invoke providers, LIVE transient failures receive one retry,
+and no execution or portfolio mutation is authorized. Real acceptance and full
+regression are pending.
+
+### E2E-S4.0A.1 Block 3A — Acquisition-Capable Frontier
+
+The first LIVE replenishment attempt terminated before wave creation because
+the planner consumed the non-canonical `resolved_symbol` field while the
+frozen S2.2C audit publishes `yahoo_symbol`. Block 3A corrects this adapter
+boundary without changing the S2.2A–S2.2H contracts. The planner now exposes
+counts for supported eligible listings, resolved mappings, attempted listings
+and the remaining acquisition-capable frontier. `UNIVERSE_EXHAUSTED` is valid
+only after that measured frontier reaches zero. Selected listings continue
+through the existing LIVE S2.2D acquisition and quality gates before research.
+
+
+### E2E-S4.0A.1 Block 3B — Terminal Review Routing
+
+The replenishment runtime now distinguishes completed deterministic history
+review routes from transient processing failures. `REVIEW_REQUIRED` and
+`BLOCKED` listings become symmetric terminal
+`EXCLUDED / EVIDENCE_UNAVAILABLE` outcomes, do not consume the technical
+retry budget and advance the bounded frontier. `STANDARD` listings continue
+through the existing Scanner-to-Research adapters, including mixed waves.
+
+This is an orchestration correction only: existing scanner, research,
+opportunity, risk and execution contracts remain unchanged. The checkpoint
+continues to prohibit threshold relaxation, broker orders, portfolio mutation
+and automatic execution. Implementation is complete; live validation on a
+new immutable replenishment session is pending.
+
+
+### E2E-S4.0A.1 Block 3C — Verification Clock Alignment
+
+The acquisition-capable frontier now binds Yahoo identity verification,
+availability evidence, history snapshot construction and quality evaluation
+to the same immutable wave timestamp. This corrects the causal ordering that
+previously produced `SNAPSHOT_NOT_KNOWN_AS_OF` when the provider used the
+system clock a few milliseconds after the frozen orchestration timestamp.
+
+No domain contract changed. The existing single-request
+`YahooHistorySnapshotProvider` remains responsible for both verification and
+snapshot evidence, avoiding duplicate network acquisition. All S2.2C/S2.2D
+identity, freshness, structure, liquidity and maturity gates remain intact.
+Implementation is complete; a new immutable LIVE replenishment session must
+provide acceptance evidence before S4.0A.1 can close.
+
+### E2E-S4.0A.1 Block 3D — Portfolio-Overlap-Safe Frontier
+
+Clock-aligned LIVE evidence showed that an acquisition frontier must remain
+disjoint from the root Portfolio Watch Set. `BIT:BZU` was already represented
+through a leveraged-product proxy and `BIT:CPR` through a direct position.
+Selecting them as new candidates caused the child lineage to violate the
+four-directional-outcome invariant for a two-listing wave.
+
+Block 3D excludes every resolved Yahoo identity carrying
+`CURRENT_POSITION` provenance in the immutable root watch universe before
+frontier selection. The exclusion set and overlap counts are persisted
+separately from attempted listings, preserving exact provenance. A remaining
+directional count mismatch is classified as a fatal orchestration invariant
+and cannot enter the transient retry path. Wave attempts are ordered by their
+actual start time when the same logical wave has multiple records.
+
+This is a minimal orchestration correction. S2.2E identity grouping, S2.2F
+research/scoring and all downstream risk and execution contracts remain
+unchanged. A new immutable LIVE session must advance beyond the overlapping
+BZU/CPR identities before this block can be accepted.
+
+### E2E-S4.0A.1 Block 3E — Retry-Exhausted Candidate Quarantine
+
+The Block 3D LIVE evidence distinguished two failure classes. BMPS/BPE
+recovered on the single approved retry. ENEL/ENI did not: ENI SHORT first
+failed an evidence-integrity validator and then encountered a transient Yahoo
+news-provider failure. These outcomes must remain failed and cannot be
+converted into investment evidence or a selectable opportunity.
+
+Block 3E keeps every Research, scoring, risk and execution validator frozen.
+It corrects only the replenishment scheduler: a `PROCESSING_FAILED` outcome is
+retried once; if the retry is exhausted, the affected hypothesis and listing
+are quarantined for that immutable session and the next unattempted frontier
+wave is scheduled. Quarantine evidence includes outcome count, exact listing
+and hypothesis IDs, reason counts and source Research run IDs. A fatal
+`ORCHESTRATION_INVARIANT_VIOLATION` still causes an immediate safety stop, and
+`max_waves` remains the global circuit breaker.
+
+This preserves the approved objective of continuing bounded replenishment
+until a selectable `TradeOpportunity` exists, while preventing one
+candidate-local provider failure from terminating the entire universe search.
+No threshold is relaxed and no broker or portfolio side effect is authorized.
+
+### E2E-S4.0A.2 — News-Sensitive Acquisition Frontier
+
+The non-semantic alphabetical/catalogue traversal exposed by LIVE bounded
+replenishment is replaced by a versioned acquisition-priority layer. This is
+an orchestration change only: all S2.2 eligibility, mapping, history,
+liquidity, research, scoring and portfolio-risk gates remain normative.
+
+The frontier target is 48 listings. Starting from a venue-balanced,
+deterministic order derived from the immutable session fingerprint, LIVE
+screens 48 unseen listings for recent price-sensitive news, keeps the `n`
+qualified listings and then screens exactly `48 - n` fresh listings. A
+listing without qualifying news is not screened again in the same session.
+The loop stops at 48 qualified listings, provider-wide circuit break, frontier
+exhaustion or 10 iterations.
+
+Qualified listings are ranked by event severity, publication recency, direct
+qualifying-item count, independent-source count and deterministic seeded key.
+No LLM is used for this ranking. Missing or malformed provider evidence never
+invents a score. Any unfilled positions use still-unscreened seeded listings
+first; previously screened no-event listings are a last-resort fill only.
+
+One immutable ranking snapshot is persisted per replenishment session. It
+records the frontier-input fingerprint, policy, clock, iterations,
+assessments, evidence IDs, qualified and fallback identities, network-call
+count and circuit state. `CACHE_ONLY` makes zero news calls; resume reuses the
+snapshot without refetching or reordering.
+
+The same change set fixes the diagnosed NASDAQ turnover-conversion false
+negative. Yahoo history, history quality and ECB FX evidence now share the
+exact immutable wave clock. The FX conversion gate remains mandatory and
+fail-closed.
+
+Closure requires focused tests, a real multi-iteration LIVE ranking, proof of
+snapshot replay, a NASDAQ `STANDARD` history route with valid EUR-converted
+turnover evidence, complete regression and zero broker, portfolio or
+automatic-execution side effects.
+
+### E2E-S4.0A.3 — Research Evidence Completion Bridge
+
+Live S4.0A.1/A.2 evidence proved that the replenishment and acquisition
+frontier work, but directional hypotheses remained `RESEARCH_NOT_COMPLETE`
+because the integration exposed market and news evidence without every
+semantic dimension required by the frozen Research and Opportunity Scoring
+contracts.
+
+S4.0A.3 converts the canonical Stage-2 technical object into research evidence
+before inference and reuses the same immutable object in scoring. Optional
+Yahoo providers add source-backed fundamental and analyst/expectations
+evidence. Missing fields are omitted; provider failures are isolated, explicit
+and persisted.
+
+No `PARTIAL` result is promoted, no evidence is fabricated and no completeness,
+quality, score or confidence threshold changes. `CACHE_ONLY` makes zero
+provider calls and all zero-side-effect invariants remain normative.
+
+Closure requires five-kind evidence coverage when sources support it,
+immutable-clock and provenance proof, isolated-provider failure evidence, a
+controlled `COMPLETE + SCORED` path, live current-data evidence and complete
+regression.
+
+The first isolated LIVE bridge pilot processed CAG with all five evidence
+kinds and all providers successful. It exposed two representation defects:
+scorable analyst/current-price evidence did not trigger an Expectations
+presence repair, and an exact debt value of 7,475,100,160 was rescaled by the
+model to 74.75 billion. The corrective bridge now treats Expectations as a
+conditionally required field only when explicit price-target comparisons are
+available, reuses the existing targeted-repair boundary, and retains UNKNOWN
+when that basis is absent. Fundamental monetary evidence carries both a
+unit-aware scaled value and exact raw units. No completion or scoring gate is
+relaxed.
+
+The first fresh corrective replay reached the Expectations repair and exposed
+a repair-scope defect rather than an evidence defect. The model attempted to
+promote the research to `COMPLETE` while retaining material unknowns and
+`requires_additional_research=true`; canonical validators rejected the result.
+Expectations presence now authorizes only `expectations_assessment`.
+`research_status` and `requires_additional_research` remain protected unless
+an independent deterministic validator explicitly makes them repairable.
+
+S4.0A.3 closed after a fresh empty-database LIVE replay persisted CAG evidence,
+research and scoring lineage without creating a false TradeOpportunity. MARKET,
+TECHNICAL, FUNDAMENTAL and ANALYST evidence were all available and cited; the
+scoped repair populated `expectations_assessment=PARTIALLY_PRICED_IN` and left
+no required context missing. The `0.5` evidence coverage score was correct:
+three of six semantic dimensions were represented, while no current catalyst,
+macro or news context existed. The terminal outcome was therefore the valid
+fail-closed result `EXCLUDED / RESEARCH_NOT_COMPLETE`. Focused governance tests
+passed and the complete regression closed with 1,620 tests and 162 subtests.
+E2E-S4.0A remains active and returns to bounded replenishment for the next
+candidate; no business threshold or execution policy was relaxed.

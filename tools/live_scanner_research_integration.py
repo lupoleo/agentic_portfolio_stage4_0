@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 
 from app.ai.canonical_technical import build_canonical_technical_input
+from app.ai.analyst_evidence_provider import YahooAnalystEvidenceProvider
+from app.ai.fundamental_evidence_provider import YahooFundamentalEvidenceProvider
 from app.ai.local_provider import LocalProvider
 from app.ai.market_evidence_provider import YahooMarketEvidenceProvider
 from app.ai.news_evidence_provider import YahooNewsEvidenceProvider
@@ -51,6 +53,7 @@ def main() -> int:
     integration_store = ScannerResearchIntegrationStore(args.db)
     if args.cache_only:
         research_service = scoring_service = market = news = None
+        fundamental = analyst = None
         technical_loader = None
     else:
         provider = LocalProvider(
@@ -60,6 +63,8 @@ def main() -> int:
         scoring_service = OpportunityScoringService(provider)
         market = YahooMarketEvidenceProvider()
         news = YahooNewsEvidenceProvider()
+        fundamental = YahooFundamentalEvidenceProvider()
+        analyst = YahooAnalystEvidenceProvider()
         technical_loader = build_canonical_technical_input
     service = ScannerResearchIntegrationService(
         stage3_store=stage3_store,
@@ -68,6 +73,8 @@ def main() -> int:
         scoring_service=scoring_service,
         market_provider=market,
         news_provider=news,
+        fundamental_provider=fundamental,
+        analyst_provider=analyst,
         canonical_technical_loader=technical_loader,
     )
     print("checkpoint: E2E-S2.2F")

@@ -35,7 +35,7 @@ from app.ai.research_semantics import (
 )
 
 
-RESEARCH_PROMPT_VERSION = "opportunity-research-v1.2"
+RESEARCH_PROMPT_VERSION = "opportunity-research-v1.3"
 
 # AI-7D.4D.3d: hard deterministic budgets for the repair input.
 # These protect the local 4096-token model from pathological initial outputs.
@@ -176,7 +176,10 @@ class ResearchService:
 
         # AI-8C.3b.6: derive context-presence requirements from the canonical
         # evidence semantic tags, not from stochastic research prose.
-        required_context_fields = self._required_context_fields(evidence_semantics)
+        required_context_fields = self._required_context_fields(
+            evidence_semantics,
+            evidence_items=evidence_items,
+        )
 
         snapshot_id = (
             portfolio_snapshot_id
@@ -261,7 +264,11 @@ class ResearchService:
         ):
             repair_attempted = True
             repairable_fields = self._repairable_fields(coverage, semantic)
-            repairable_fields.update(missing_required_contexts)
+            repairable_fields.update(
+                self._context_presence_repairable_fields(
+                    missing_required_contexts
+                )
+            )
             repair_output_schema = self._build_repair_output_schema(repairable_fields)
             repair_request = AIRequest(
                 task=AITask.RESEARCH,
@@ -536,9 +543,12 @@ class ResearchService:
             diagnostics=research_diagnostics,
         )
 
-    @staticmethod
+    @classmethod
     def _required_context_fields(
+        cls,
         evidence_semantics: list["EvidenceSemanticAssessment"],
+        *,
+        evidence_items: list["EvidenceItem"] | None = None,
     ) -> set[str]:
         """Map canonical evidence dimensions to deterministic context presence.
 
@@ -557,6 +567,8 @@ class ResearchService:
                 required.update({"event_context", "catalyst_assessment"})
             if "ANALYST_EXPECTATIONS" in dimensions:
                 required.add("event_context")
+                if cls._has_scorable_analyst_expectations(evidence_items):
+                    required.add("expectations_assessment")
             if "MACRO" in dimensions:
                 required.add("market_context")
             if "PRICE_TECHNICAL" in dimensions:
@@ -564,15 +576,45 @@ class ResearchService:
         return required
 
     @staticmethod
+    def _has_scorable_analyst_expectations(
+        evidence_items: list["EvidenceItem"] | None,
+    ) -> bool:
+        if not evidence_items:
+            return False
+        for item in evidence_items:
+            metadata = getattr(item.evidence, "metadata", {}) or {}
+            if metadata.get("expectations_scorable") is True:
+                return True
+        return False
+
+    @staticmethod
     def _missing_required_context_fields(
         output: ResearchModelOutput,
         required_fields: set[str],
     ) -> set[str]:
-        return {
-            name
-            for name in required_fields
-            if getattr(output, name, None) is None
-        }
+        missing: set[str] = set()
+        for name in required_fields:
+            value = getattr(output, name, None)
+            if value is None:
+                missing.add(name)
+            elif (
+                name == "expectations_assessment"
+                and value == ExpectationsAssessment.UNKNOWN
+            ):
+                missing.add(name)
+        return missing
+
+    @staticmethod
+    def _context_presence_repairable_fields(
+        missing_required_contexts: set[str],
+    ) -> set[str]:
+        """Authorize only the missing context fields themselves.
+
+        Context presence never independently authorizes rewriting research
+        governance. Status fields remain repairable only when the canonical
+        coverage or semantic validators report their own status invariant.
+        """
+        return set(missing_required_contexts)
 
     @staticmethod
     def _context_presence_repair_instructions(
@@ -584,11 +626,12 @@ class ResearchService:
             "technical_context",
             "event_context",
             "catalyst_assessment",
+            "expectations_assessment",
         }
         targets = sorted(context_fields.intersection(allowed_fields))
         if not targets:
             return "CONTEXT PRESENCE GATE: no context-presence repair required."
-        return (
+        instructions = (
             "CONTEXT PRESENCE GATE:\n"
             "- Canonical evidence semantics deterministically indicate that "
             "these context categories are represented: "
@@ -599,6 +642,19 @@ class ResearchService:
             "- If the evidence still does not support a truthful summary, "
             "omit/null the field rather than inventing content."
         )
+        if "expectations_assessment" in targets:
+            instructions += (
+                "\n- For expectations_assessment, select NOT_PRICED_IN, "
+                "PARTIALLY_PRICED_IN or LARGELY_PRICED_IN only from explicit "
+                "analyst/current-price comparisons in the supplied evidence. "
+                "Do not infer a classification from price performance alone."
+                "\n- Repairing expectations_assessment alone does not authorize "
+                "promotion of research_status or clearing "
+                "requires_additional_research. Those governance fields remain "
+                "protected unless an independent deterministic validator "
+                "explicitly included them in the repair schema."
+            )
+        return instructions
 
     _RESEARCH_LIST_FIELDS = (
         "key_risks",
@@ -1416,6 +1472,11 @@ Before returning, perform this silent coverage check:
 - If those developments provide a plausible evidence-supported mechanism for
   changing expectations or fundamentals, catalyst_assessment must be
   populated.
+- If analyst evidence supplies current price and explicit price targets,
+  expectations_assessment must not be UNKNOWN; classify priced-in state only
+  from those supplied comparisons.
+- Preserve supplied numeric magnitudes and units exactly. Never shift a
+  decimal place or silently rescale a fundamental value.
 - Remove unknowns that contradict facts already present in supplied evidence.
 """
 

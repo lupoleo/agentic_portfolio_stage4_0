@@ -123,7 +123,7 @@ def test_inference_provenance_is_linked():
     assert result.inference.evidence_ids == ["EVID-001"]
     assert result.inference.portfolio_snapshot_id == "SNAP-001"
     assert result.inference.risk_state_id == "RISK-001"
-    assert result.inference.prompt_version == "opportunity-research-v1.2"
+    assert result.inference.prompt_version == "opportunity-research-v1.3"
     assert len(result.inferences) == 1
 
 
@@ -131,7 +131,7 @@ def test_research_metadata_records_model_and_prompt_version():
     result = ResearchService(FakeProvider()).research(candidate(), evidence(), now=NOW)
     assert result.research.metadata["provider"] == "FAKE"
     assert result.research.metadata["model"] == "fake-model"
-    assert result.research.metadata["prompt_version"] == "opportunity-research-v1.2"
+    assert result.research.metadata["prompt_version"] == "opportunity-research-v1.3"
     assert result.research.metadata["repair_attempted"] is False
     assert result.research.metadata["coverage_valid"] is True
 
