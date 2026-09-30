@@ -221,3 +221,58 @@ def test_inspection_rejects_r1_for_v1_evidence_and_ignores_older_rows(tmp_path):
     assert harness.inspect_research(database, "2026-09-30T12:00:00Z")["r1_acceptance"] == "FAIL"
     later = harness.inspect_research(database, "2026-09-30T13:00:00Z")
     assert later["technical_evidence"] == [] and later["research"] == []
+
+
+def _score_payload(kind, direction, raw, source="HYPOTHESIS"):
+    return {
+        "opportunity_score_id": f"score-{kind}",
+        "ticker": "UCG.MI",
+        "raw_score": raw,
+        "technical_score": 50.0,
+        "metadata": {
+            "hypothesis_kind": kind,
+            "scoring_diagnostics": {"direction": {"direction": direction, "direction_source": source}},
+        },
+    }
+
+
+def _insert_scores(database, payloads):
+    with sqlite3.connect(database) as connection:
+        for payload in payloads:
+            connection.execute(
+                "insert into opportunity_scores values (?, ?)",
+                ("2026-09-30T12:30:00Z", json.dumps(payload)),
+            )
+
+
+def test_r2_inspection_accepts_directional_non_contradictory_pairs(tmp_path):
+    database = tmp_path / "state.db"
+    _inspection_db(database, adapter_version="stage4-research-technical-v2",
+                   volatility_text=True, research_unknowns=[])
+    _insert_scores(database, [
+        _score_payload("NEW_LONG", "LONG", 64.0),
+        _score_payload("NEW_SHORT", "SHORT", 38.0),
+    ])
+    result = harness.inspect_research(database, "2026-09-30T12:00:00Z")
+    assert result["r2_acceptance"] == "PASS"
+    assert result["direction_pairs"][0]["long_raw"] == 64.0
+
+
+def test_r2_inspection_rejects_contradictory_or_undirected_scores(tmp_path):
+    database = tmp_path / "state.db"
+    _inspection_db(database, adapter_version="stage4-research-technical-v2",
+                   volatility_text=True, research_unknowns=[])
+    _insert_scores(database, [
+        _score_payload("NEW_LONG", "LONG", 64.0),
+        _score_payload("NEW_SHORT", "LONG", 62.0, source="DEFAULT_LONG"),
+    ])
+    result = harness.inspect_research(database, "2026-09-30T12:00:00Z")
+    assert result["r2_acceptance"] == "FAIL"
+    assert [check["passed"] for check in result["r2_checks"]] == [False, False]
+
+
+def test_r2_inspection_is_not_applicable_without_directional_scores(tmp_path):
+    database = tmp_path / "state.db"
+    _inspection_db(database, adapter_version="stage4-research-technical-v2",
+                   volatility_text=True, research_unknowns=[])
+    assert harness.inspect_research(database, "2026-09-30T12:00:00Z")["r2_acceptance"] == "NOT_APPLICABLE"

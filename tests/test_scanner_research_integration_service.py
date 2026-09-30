@@ -113,8 +113,18 @@ class ScoringServiceStub:
                 raw_score=70, score_confidence=.6,
                 confidence_adjusted_score=62,
             ),
-            diagnostics={"stub": True},
+            diagnostics=_stub_diagnostics(kwargs.get("direction")),
         )
+
+
+def _stub_diagnostics(direction):
+    diagnostics = {"stub": True}
+    if direction is not None:
+        diagnostics["direction"] = {
+            "direction": direction.value,
+            "direction_source": "HYPOTHESIS",
+        }
+    return diagnostics
 
 
 def service(tmp_path):

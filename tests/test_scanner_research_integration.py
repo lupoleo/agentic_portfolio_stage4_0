@@ -17,6 +17,7 @@ from app.scanner.research_integration import (
     build_market_scan,
     build_opportunity_score,
     build_research_hypotheses,
+    hypothesis_direction,
     integration_run_id,
     load_watch_universe_report,
     materialize_trade_opportunity,
@@ -116,6 +117,12 @@ def score(hypothesis, research_value, **overrides):
         requires_additional_research=False,
         portfolio_snapshot_id="snap-001",
     )
+    direction = hypothesis_direction(hypothesis.kind)
+    if direction is not None:
+        data["metadata"] = {"scoring_diagnostics": {"direction": {
+            "direction": direction.value,
+            "direction_source": "HYPOTHESIS",
+        }}}
     data.update(overrides)
     return OpportunityScore(**data)
 

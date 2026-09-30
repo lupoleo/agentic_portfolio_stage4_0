@@ -269,6 +269,27 @@ def build_market_scan(
     )
 
 
+def hypothesis_direction(kind: ResearchHypothesisKind) -> Direction | None:
+    """Direction a hypothesis asks research and scoring to evaluate."""
+    if kind is ResearchHypothesisKind.NEW_LONG:
+        return Direction.LONG
+    if kind is ResearchHypothesisKind.NEW_SHORT:
+        return Direction.SHORT
+    return None
+
+
+def scored_direction(score: OpportunityScore) -> str | None:
+    """Direction recorded by directional scoring (AI-8C.3-R2), if any."""
+    diagnostics = (score.metadata or {}).get("scoring_diagnostics") or {}
+    direction = diagnostics.get("direction") if isinstance(diagnostics, dict) else None
+    if not isinstance(direction, dict):
+        return None
+    if direction.get("direction_source") != "HYPOTHESIS":
+        return None
+    value = direction.get("direction")
+    return str(value) if value else None
+
+
 def build_opportunity_score(
     hypothesis: ResearchHypothesis,
     research: OpportunityResearch,
@@ -366,6 +387,12 @@ def opportunity_materialization_decision(
             eligible=False, reason=HypothesisOutcomeReason.SCORE_NOT_COMPLETE,
             message="Opportunity requires a complete five-component score", score=score,
         )
+    expected_direction = hypothesis_direction(hypothesis.kind)
+    if expected_direction is None or scored_direction(score) != expected_direction.value:
+        return OpportunityMaterializationDecision(
+            eligible=False, reason=HypothesisOutcomeReason.SCORE_DIRECTION_MISMATCH,
+            message="Score was not computed for the hypothesis direction", score=score,
+        )
     if score.confidence_adjusted_score is None or (
         score.confidence_adjusted_score < policy.minimum_confidence_adjusted_score
     ):
@@ -409,11 +436,9 @@ def materialize_trade_opportunity(
     )
     if not decision.eligible:
         return decision, None, None
-    direction = (
-        Direction.LONG
-        if hypothesis.kind is ResearchHypothesisKind.NEW_LONG
-        else Direction.SHORT
-    )
+    direction = hypothesis_direction(hypothesis.kind)
+    if direction is None:  # unreachable: the decision above requires it
+        raise ValueError("materialization requires a directional hypothesis")
     thesis = research.bull_case if direction is Direction.LONG else research.bear_case
     invalidation = research.bear_case if direction is Direction.LONG else research.bull_case
     opportunity_id = _identifier("opp", {

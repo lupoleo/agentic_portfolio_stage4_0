@@ -10,7 +10,7 @@
 | Baseline date | 2026-09-23 |
 | Last closed checkpoint | E2E-S4.0A.3 — Research Evidence Completion Bridge |
 | Active checkpoint | E2E-S4.0A — First Complete E2E Target — LIVE COMPLETION IN PROGRESS |
-| Regression baseline | 1627 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
+| Regression baseline | 1653 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -607,7 +607,7 @@ meaning of a policy decision.
 | --- | --- | --- |
 | Quantitative portfolio foundation | Stage 2.5 | CLOSED / FROZEN |
 | Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN |
-| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30 |
+| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30; AI-8C.3-R2 (directional scoring) implemented, live acceptance pending |
 | Portfolio Filter | PF-1A through PF-1H | CLOSED / FROZEN |
 | Exchange universe and provider policy | E2E-S2.1A through S2.1J | CLOSED |
 | Instrument taxonomy | E2E-S2.2A | CLOSED |
@@ -1255,3 +1255,26 @@ listing receive the same technical score (63 of 74 persisted pairs; median raw
 score difference 2.86 points). Direction is applied only after eligibility.
 Today this is masked because no research reaches `COMPLETE`; any change that
 unblocks research completeness must be preceded by direction-aware scoring.
+
+### AI-8C.3-R2 — Directional Opportunity Scoring (reopened frozen contract)
+
+AI-8C.3-R2 reopens AI-8C.3 again to make Opportunity Scoring measure support
+for the hypothesis direction. The scanner integration passes `LONG` or `SHORT`;
+the deterministic technical base mirrors its directional contribution for
+SHORT while keeping the RSI-extreme penalty as a risk; the prompt and repair
+prompts state the direction; factor extraction and consistency diagnostics
+mirror for SHORT; the persisted score diagnostics record the direction and its
+source (`ai-8c3-directional-scoring-v1`, prompt
+`opportunity-scoring-v13-directional`).
+
+A new fail-closed materialization gate rejects any directional hypothesis whose
+score was not computed for that direction (`SCORE_DIRECTION_MISMATCH`,
+replenishable), including legacy direction-blind scores. Weights, calculator,
+confidence and the 60 / 0.40 thresholds are unchanged, and the LONG technical
+base is bit-identical to the previous mapping.
+
+Offline, applying only the deterministic technical mirror to the 74
+historical LONG/SHORT pairs removes every pair in which both directions scored
+raw ≥ 60 (14 → 0). The semantic components depend on the model honouring the
+direction and are verified in live acceptance through the validation harness.
+Details: `docs/AI-8C.3-R2-DIRECTIONAL-SCORING.md`.

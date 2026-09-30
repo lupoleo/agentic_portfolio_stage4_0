@@ -164,4 +164,6 @@ def test_volatility_does_not_change_the_deterministic_technical_base_score():
 
 def test_default_scoring_prompt_version_is_bumped():
     parameter = inspect.signature(OpportunityScoringService.__init__).parameters["prompt_version"]
-    assert parameter.default == "opportunity-scoring-v12-canonical-technical-volatility"
+    # R1 introduced v12; later revisions (R2: v13) must keep it superseded.
+    version = int(parameter.default.split("-v", 1)[1].split("-", 1)[0])
+    assert version >= 12

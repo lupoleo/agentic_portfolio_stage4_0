@@ -218,7 +218,7 @@ finally {
             'live' {
                 if ($result.summary) {
                     $opportunities = @($result.summary.opportunity_ids) -join ','
-                    $detail = "exit=$($result.exit_code) terminal=$($result.summary.terminal_reason) opportunities=[$opportunities] frontier=$($result.summary.frontier_ranking_mode) qualified=$($result.summary.frontier_ranking_qualified_count) r1_acceptance=$($result.r1_acceptance) elapsed=$($result.elapsed_seconds)s"
+                    $detail = "exit=$($result.exit_code) terminal=$($result.summary.terminal_reason) opportunities=[$opportunities] frontier=$($result.summary.frontier_ranking_mode) qualified=$($result.summary.frontier_ranking_qualified_count) r1_acceptance=$($result.r1_acceptance) r2_acceptance=$($result.research_inspection.r2_acceptance) elapsed=$($result.elapsed_seconds)s"
                 }
                 elseif ($result.reason) { $detail = "$($result.reason)" }
                 elseif ($result.error) { $detail = "$($result.error)" }
@@ -253,7 +253,15 @@ finally {
             foreach ($unknown in @($row.other_unknowns)) { if ($unknown) { $md.Add("    - other: $unknown") } }
         }
         foreach ($row in @($inspection.scores)) {
-            $md.Add("- score $($row.ticker) $($row.scoring_status) adjusted=$($row.confidence_adjusted_score) technical=$($row.technical_score) volatility_uncertain=$($row.volatility_listed_uncertain)")
+            $md.Add("- score $($row.ticker) $($row.hypothesis_kind) direction=$($row.direction)/$($row.direction_source) $($row.scoring_status) raw=$($row.raw_score) adjusted=$($row.confidence_adjusted_score) thesis=$($row.thesis_score) catalyst=$($row.catalyst_score) fundamental=$($row.fundamental_score) technical=$($row.technical_score) expectations=$($row.expectations_score) direction_ignored=$($row.possible_direction_ignored)")
+        }
+        $md.Add('')
+        $md.Add("## Directional scoring (AI-8C.3-R2 acceptance: $($inspection.r2_acceptance))")
+        foreach ($check in @($inspection.r2_checks)) {
+            $md.Add("- [$(if ($check.passed) { 'x' } else { ' ' })] $($check.name): $(($check.detail | ConvertTo-Json -Compress -Depth 4))")
+        }
+        foreach ($pair in @($inspection.direction_pairs)) {
+            $md.Add("- pair $($pair.ticker): LONG raw=$($pair.long_raw) technical=$($pair.long_technical) | SHORT raw=$($pair.short_raw) technical=$($pair.short_technical)")
         }
     }
     $md.Add('')

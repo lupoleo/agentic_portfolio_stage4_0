@@ -20,6 +20,7 @@ from app.scanner.research_integration import (
     build_opportunity_score,
     build_research_hypotheses,
     excluded_member_id,
+    hypothesis_direction,
     integration_run_id,
     member_exclusion_reason,
     materialize_trade_opportunity,
@@ -410,6 +411,7 @@ class ScannerResearchIntegrationService:
             evidence_coverage_score=float(coverage_score),
             scoring_profile=OpportunityScoringProfile.STANDARD,
             canonical_technical_input=technical,
+            direction=hypothesis_direction(hypothesis.kind),
         )
         score = build_opportunity_score(
             hypothesis, research, scoring_result,

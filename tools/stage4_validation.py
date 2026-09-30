@@ -719,19 +719,8 @@ def inspect_research(database: Path, since: str) -> dict[str, Any]:
             "other_unknowns": [item for item in unknowns if item not in material],
         })
 
-    score_rows = [
-        {
-            "opportunity_score_id": record.get("opportunity_score_id"),
-            "ticker": record.get("ticker"),
-            "scoring_status": record.get("scoring_status"),
-            "confidence_adjusted_score": record.get("confidence_adjusted_score"),
-            "technical_score": record.get("technical_score"),
-            "volatility_listed_uncertain": any(
-                "volatil" in str(item).lower() for item in record.get("uncertainty_factors", [])
-            ),
-        }
-        for record in scores
-    ]
+    score_rows = [_score_row(record) for record in scores]
+    r2_checks, pairs = _r2_checks(score_rows)
     outcome_rows = [
         {
             "hypothesis_id": outcome.get("hypothesis_id"),
@@ -790,7 +779,84 @@ def inspect_research(database: Path, since: str) -> dict[str, Any]:
         ),
         "r1_checks": r1_checks,
         "r1_acceptance": _verdict(r1_checks),
+        "direction_pairs": pairs,
+        "r2_checks": r2_checks,
+        "r2_acceptance": _verdict(r2_checks) if r2_checks else "NOT_APPLICABLE",
     }
+
+
+_KIND_DIRECTION = {"NEW_LONG": "LONG", "NEW_SHORT": "SHORT"}
+
+
+def _score_row(record: dict[str, Any]) -> dict[str, Any]:
+    metadata = record.get("metadata") or {}
+    diagnostics = metadata.get("scoring_diagnostics") or {}
+    direction = diagnostics.get("direction") if isinstance(diagnostics, dict) else None
+    direction = direction if isinstance(direction, dict) else {}
+    return {
+        "opportunity_score_id": record.get("opportunity_score_id"),
+        "ticker": record.get("ticker"),
+        "hypothesis_kind": metadata.get("hypothesis_kind"),
+        "direction": direction.get("direction"),
+        "direction_source": direction.get("direction_source"),
+        "possible_direction_ignored": direction.get("possible_direction_ignored"),
+        "scoring_status": record.get("scoring_status"),
+        "raw_score": record.get("raw_score"),
+        "confidence_adjusted_score": record.get("confidence_adjusted_score"),
+        "thesis_score": record.get("thesis_score"),
+        "catalyst_score": record.get("catalyst_score"),
+        "fundamental_score": record.get("fundamental_score"),
+        "technical_score": record.get("technical_score"),
+        "expectations_score": record.get("expectations_score"),
+        "volatility_listed_uncertain": any(
+            "volatil" in str(item).lower() for item in record.get("uncertainty_factors", [])
+        ),
+    }
+
+
+def _r2_checks(score_rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """AI-8C.3-R2 acceptance: directional scores and non-contradictory pairs."""
+    directional = [row for row in score_rows if row["hypothesis_kind"] in _KIND_DIRECTION]
+    if not directional:
+        return [], []
+    by_ticker: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in directional:
+        by_ticker.setdefault(str(row["ticker"]), {})[str(row["hypothesis_kind"])] = row
+    pairs = []
+    for ticker, rows in sorted(by_ticker.items()):
+        long_row, short_row = rows.get("NEW_LONG"), rows.get("NEW_SHORT")
+        if not long_row or not short_row:
+            continue
+        pairs.append({
+            "ticker": ticker,
+            "long_raw": long_row["raw_score"],
+            "short_raw": short_row["raw_score"],
+            "long_technical": long_row["technical_score"],
+            "short_technical": short_row["technical_score"],
+            "components_long": [long_row[f"{name}_score"] for name in ("thesis", "catalyst", "fundamental", "expectations")],
+            "components_short": [short_row[f"{name}_score"] for name in ("thesis", "catalyst", "fundamental", "expectations")],
+        })
+
+    def both_supported(pair: dict[str, Any]) -> bool:
+        return (
+            pair["long_raw"] is not None and pair["short_raw"] is not None
+            and float(pair["long_raw"]) >= 60.0 and float(pair["short_raw"]) >= 60.0
+        )
+
+    mismatched = [
+        row["opportunity_score_id"] for row in directional
+        if row["direction_source"] != "HYPOTHESIS"
+        or row["direction"] != _KIND_DIRECTION[row["hypothesis_kind"]]
+    ]
+    checks = [
+        _check("every directional score records its hypothesis direction", not mismatched, mismatched),
+        _check(
+            "no LONG/SHORT pair where both sides score raw >= 60",
+            not any(both_supported(pair) for pair in pairs),
+            [pair["ticker"] for pair in pairs if both_supported(pair)],
+        ),
+    ]
+    return checks, pairs
 
 
 def _count(values: Any) -> dict[str, int]:
