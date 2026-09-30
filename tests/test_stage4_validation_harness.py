@@ -373,3 +373,28 @@ def test_r2_2_inspection_flags_divergent_shared_company_frames(tmp_path):
     result = harness.inspect_research(database, "2026-09-30T12:00:00Z")
     assert result["r2_acceptance"] == "PASS"
     assert result["direction_pairs"][0]["shared_assessment"] is True
+
+
+def test_r1_inspection_ignores_volatility_implications(tmp_path):
+    # Live 2026-09-30 (UCG.MI): an impact statement is not a missing metric.
+    database = tmp_path / "state.db"
+    _inspection_db(
+        database,
+        adapter_version="stage4-research-technical-v2",
+        volatility_text=True,
+        research_unknowns=["Impact of recent volatility on long-term valuation"],
+    )
+    result = harness.inspect_research(database, "2026-09-30T12:00:00Z")
+    assert result["research"][0]["volatility_listed_unknown"] is False
+    assert result["r1_acceptance"] == "PASS"
+
+
+def test_r1_inspection_still_flags_missing_volatility_claims(tmp_path):
+    database = tmp_path / "state.db"
+    _inspection_db(
+        database,
+        adapter_version="stage4-research-technical-v2",
+        volatility_text=True,
+        research_unknowns=["Technical volatility metrics are unknown"],
+    )
+    assert harness.inspect_research(database, "2026-09-30T12:00:00Z")["r1_acceptance"] == "FAIL"

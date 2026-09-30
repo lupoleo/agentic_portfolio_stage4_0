@@ -761,8 +761,14 @@ def inspect_research(database: Path, since: str) -> dict[str, Any]:
             # R1 is about the metric being supplied. An unknown that quotes the
             # supplied value (for example "volatility persistence beyond the
             # current 22.37% level") is a forward uncertainty, not a gap.
+            # Same rule as the research validator (AI-8C.2-R1): implication,
+            # impact and forward items about volatility are not claims that
+            # the supplied metric is missing.
             "volatility_listed_unknown": any(
-                "volatil" in item.lower() and not re.search(r"\d", item)
+                "volatil" in item.lower()
+                and ResearchCoverageValidator._unknown_conflicts_with_evidence(
+                    item, "annualized volatility"
+                )
                 for item in unknowns
             ),
             "volatility_forward_mentions": [

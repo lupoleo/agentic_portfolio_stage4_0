@@ -5,7 +5,7 @@
 | Type | Revision of a reopened contract (AI-8C.3 Opportunity Scoring) |
 | Also affected | Stage 4 runtime wiring; S2.F materialization gate for SHORT |
 | Branch | `e2e-s4.0a-validation-harness` (separate commit) |
-| Status | IMPLEMENTED — LIVE ACCEPTANCE PENDING; SHORT still suspended |
+| Status | ACCEPTED 2026-09-30; SHORT re-enable pending operator decision |
 | Approved by | Operator, 2026-09-30 |
 
 ## 1. Reason
@@ -78,3 +78,34 @@ passed.
    `ai-8c3-directional-scoring-v3`, company-frame values are identical within
    every LONG/SHORT pair sharing an assessment, and side effects are zero.
 3. Operator decision on re-enabling SHORT materialization.
+
+## 6. Acceptance evidence (2026-09-30)
+
+Validation run on the operator machine, commit `d041fde` (tree `c093eebe`),
+two LIVE waves (BIT:BAMI, BIT:UCG, BIT:TIT, NASDAQ:CZR), 1,139 s.
+Regression 1,741 passed + 1 POSIX-only skip; Replay PASS; zero side effects;
+no history failure.
+
+| Criterion | Result |
+| --- | --- |
+| Every directional score uses `ai-8c3-directional-scoring-v3` | PASS (8 of 8) |
+| Company-frame values identical within pairs sharing an assessment | PASS (4 of 4 pairs, one fingerprint per listing) |
+| Company-frame components sourced from the shared assessment | 16 of 16 |
+| No LONG/SHORT pair with both raw scores ≥ 60 | PASS |
+
+| Listing | Shared fundamental / expectations | LONG final | SHORT final (mirror) |
+| --- | --- | --- | --- |
+| BAMI.MI | 50 / 50 | 50 / 50 | 50 / 50 |
+| UCG.MI | 52.5 / 75 | 52.5 / 75 | 47.5 / 25 |
+| CZR | 50 / 55 | 50 / 55 | 50 / 45 |
+| TIT.MI | 52.5 / 55 | 52.5 / 55 | 47.5 / 45 |
+
+In the previous three runs the same comparison diverged by up to 22.5 points.
+CZR `NEW_LONG` was `COMPLETE` and `SCORED` at a confidence-adjusted 53.19,
+excluded as `SCORE_BELOW_THRESHOLD`.
+
+The run's R1 check reported one research (UCG.MI) listing
+"Impact of recent volatility on long-term valuation". That is an implication,
+not a missing metric, and the research validator correctly does not treat it
+as a contradiction; the harness check is now aligned with the validator rule
+and passes on this run.
