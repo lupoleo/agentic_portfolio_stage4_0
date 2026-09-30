@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import re
 from typing import TYPE_CHECKING, Iterable
 
 from app.ai.research_models import EvidenceQuality, ResearchStatus
@@ -83,6 +84,21 @@ class ResearchCoverageValidator:
         "market_context", "market context", "sector", "peer",
         "volatility", "guidance",
     )
+    # AI-8C.2-R1: a forward uncertainty that reads as missing as-of data, or a
+    # material item with no forward framing, is treated as a material gap.
+    _GAP_MARKERS = (
+        "not provided", "not supplied", "not disclosed", "not available",
+        "unavailable", "missing", "not specified", "not stated",
+        "not reported", "not included", "not given", "no data", "lack of",
+        "not explicitly",
+    )
+    _FORWARD_MARKERS = (
+        "future", "long-term", "long term", "sustainab", "potential", "will ",
+        "could", "may ", "might", "outlook", "trajectory", "going forward",
+        "next ", "upcoming", "impact", "effect", "reaction", "if ", "whether",
+        "timing", "likelihood", "beyond", "remain", "persist", "durab",
+        "success of", "ability to", "execution", "outcome", "revision",
+    )
     _RISK_LIKE_TERMS = (
         "overbought", "oversold", "pullback", "correction", "risk",
         "valuation", "caution", "volatile", "volatility", "reversal",
@@ -132,7 +148,7 @@ class ResearchCoverageValidator:
                 "INSUFFICIENT_EVIDENCE must require additional research.",
             ))
 
-        material_unknowns = [u for u in output.unknowns if self._has_any(u.lower(), self._MATERIAL_UNKNOWN_TERMS)]
+        material_unknowns = self.material_gaps(output)
         if output.research_status == ResearchStatus.COMPLETE and material_unknowns:
             issues.append(ResearchCoverageIssue(
                 ResearchCoverageCode.COMPLETE_WITH_MATERIAL_UNKNOWNS,
@@ -158,6 +174,30 @@ class ResearchCoverageValidator:
                 ))
 
         return ResearchCoverageReport(tuple(issues))
+
+    def material_unknowns(self, output) -> list[str]:
+        """Material items among unknowns (missing as-of facts)."""
+        return [
+            u for u in output.unknowns
+            if self._has_any(u.lower(), self._MATERIAL_UNKNOWN_TERMS)
+        ]
+
+    def reclassified_forward_uncertainties(self, output) -> list[str]:
+        """Forward items that are really material as-of gaps."""
+        reclassified = []
+        for item in getattr(output, "forward_uncertainties", None) or []:
+            low = item.lower()
+            gap_marked = self._has_any(low, self._GAP_MARKERS)
+            material = self._has_any(low, self._MATERIAL_UNKNOWN_TERMS)
+            forward = self._has_any(low, self._FORWARD_MARKERS)
+            if gap_marked or (material and not forward):
+                reclassified.append(item)
+        return reclassified
+
+    def material_gaps(self, output) -> list[str]:
+        """Everything that blocks COMPLETE: material unknowns plus
+        forward items that read as missing as-of data."""
+        return self.material_unknowns(output) + self.reclassified_forward_uncertainties(output)
 
     @staticmethod
     def _meaningful(value):
@@ -200,6 +240,13 @@ class ResearchCoverageValidator:
         )
         if any(term in low for term in implication_qualifiers):
             return False
+
+        # AI-8C.2-R1: canonical TECHNICAL evidence states the 20-session
+        # annualized volatility (AI-8C.3-R1). An unknown claiming volatility is
+        # missing contradicts it, unless it quotes a value (then it is about
+        # the future of a known level). "beyond"/"other" do not exempt it.
+        if "volatil" in low and "annualized volatility" in evidence_blob:
+            return not re.search(r"\d", low)
 
         families = {
             "rsi": ("rsi",),

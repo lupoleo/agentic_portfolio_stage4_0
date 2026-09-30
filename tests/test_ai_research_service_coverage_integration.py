@@ -92,8 +92,8 @@ def test_invalid_initial_output_gets_one_repair_and_two_inferences():
     assert provider.requests[1].metadata["repair"] is True
     assert provider.requests[1].metadata["repair_pass"] == 1
     assert provider.requests[1].metadata["parent_inference_id"] == result.inferences[0].inference_id
-    assert result.inferences[0].prompt_version == "opportunity-research-v1.3"
-    assert result.inferences[1].prompt_version == "opportunity-research-v1.3-repair1"
+    assert result.inferences[0].prompt_version == "opportunity-research-v1.4-forward-uncertainties"
+    assert result.inferences[1].prompt_version == "opportunity-research-v1.4-forward-uncertainties-repair1"
     assert result.research.technical_context is not None
     assert result.research.event_context is not None
 

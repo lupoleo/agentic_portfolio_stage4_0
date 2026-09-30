@@ -700,10 +700,19 @@ def inspect_research(database: Path, since: str) -> dict[str, Any]:
         for outcome in outcomes
         if outcome.get("research_id")
     }
+    from types import SimpleNamespace
+
+    from app.ai.research_validator import ResearchCoverageValidator
+
+    validator = ResearchCoverageValidator()
     research_rows = []
     for record in research:
         unknowns = [str(item) for item in record.get("unknowns", [])]
+        forward = [str(item) for item in record.get("forward_uncertainties", []) or []]
         material = [item for item in unknowns if any(term in item.lower() for term in terms)]
+        gaps = validator.material_gaps(
+            SimpleNamespace(unknowns=unknowns, forward_uncertainties=forward)
+        )
         bundle_id = research_bundle.get(str(record.get("research_id")))
         research_rows.append({
             "research_id": record.get("research_id"),
@@ -727,9 +736,27 @@ def inspect_research(database: Path, since: str) -> dict[str, Any]:
             ],
             "material_unknowns": material,
             "other_unknowns": [item for item in unknowns if item not in material],
+            "forward_uncertainties": forward,
+            "material_gaps": gaps,
+            "research_contract": (record.get("metadata") or {}).get("research_contract"),
         })
 
     score_rows = [_score_row(record) for record in scores]
+    c2r1_checks = [
+        _check(
+            "every new research uses ai-8c2-research-v2-forward-uncertainties",
+            bool(research_rows) and all(
+                row["research_contract"] == "ai-8c2-research-v2-forward-uncertainties"
+                for row in research_rows
+            ),
+            sorted({str(row["research_contract"]) for row in research_rows}),
+        ),
+        _check(
+            "no COMPLETE research contains a material gap",
+            not any(row["research_status"] == "COMPLETE" and row["material_gaps"] for row in research_rows),
+            [row["research_id"] for row in research_rows if row["research_status"] == "COMPLETE" and row["material_gaps"]],
+        ),
+    ]
     r2_checks, pairs = _r2_checks(score_rows)
     outcome_rows = [
         {
@@ -789,6 +816,18 @@ def inspect_research(database: Path, since: str) -> dict[str, Any]:
         ),
         "r1_checks": r1_checks,
         "r1_acceptance": _verdict(r1_checks),
+        "c2r1_checks": c2r1_checks,
+        "c2r1_acceptance": _verdict(c2r1_checks) if research_rows else "NOT_APPLICABLE",
+        "complete_research_count": sum(
+            1 for row in research_rows if row["research_status"] == "COMPLETE"
+        ),
+        "partial_without_material_gaps": [
+            row["research_id"] for row in research_rows
+            if row["research_status"] == "PARTIAL" and not row["material_gaps"]
+        ],
+        "opportunity_ids": sorted(
+            {str(row["opportunity_id"]) for row in outcome_rows if row.get("opportunity_id")}
+        ),
         "direction_pairs": pairs,
         "r2_checks": r2_checks,
         "r2_acceptance": _verdict(r2_checks) if r2_checks else "NOT_APPLICABLE",

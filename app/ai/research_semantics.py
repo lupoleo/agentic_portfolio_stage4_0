@@ -210,7 +210,11 @@ class ResearchSemanticQualityEvaluator:
             and output.bear_case and output.bear_case.strip()
         )
         has_context = len(dimensions) >= 2
-        has_risk_or_unknown = bool(output.key_risks or output.unknowns)
+        has_risk_or_unknown = bool(
+            output.key_risks
+            or output.unknowns
+            or getattr(output, "forward_uncertainties", None)
+        )
         return has_two_sided_thesis and has_context and has_risk_or_unknown
 
     @classmethod

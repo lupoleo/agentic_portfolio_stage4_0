@@ -245,12 +245,18 @@ finally {
         foreach ($check in @($inspection.r1_checks)) {
             $md.Add("- [$(if ($check.passed) { 'x' } else { ' ' })] $($check.name): $(($check.detail | ConvertTo-Json -Compress -Depth 4))")
         }
+        $md.Add("- AI-8C.2-R1 acceptance: $($inspection.c2r1_acceptance); COMPLETE research: $($inspection.complete_research_count); PARTIAL without material gaps: $(@($inspection.partial_without_material_gaps).Count); opportunities: $(@($inspection.opportunity_ids) -join ',')")
+        foreach ($check in @($inspection.c2r1_checks)) {
+            $md.Add("- [$(if ($check.passed) { 'x' } else { ' ' })] $($check.name): $(($check.detail | ConvertTo-Json -Compress -Depth 4))")
+        }
         $md.Add("- research status: $(($inspection.research_status_counts | ConvertTo-Json -Compress))")
         $md.Add("- outcomes: $(($inspection.outcome_reason_counts | ConvertTo-Json -Compress))")
         foreach ($row in @($inspection.research)) {
             $md.Add("- research $($row.ticker) $($row.research_status) quality=$($row.evidence_quality) confidence=$($row.research_confidence) volatility_in_evidence=$($row.bundle_states_volatility) volatility_unknown=$($row.volatility_listed_unknown)")
             foreach ($unknown in @($row.material_unknowns)) { if ($unknown) { $md.Add("    - MATERIAL: $unknown") } }
             foreach ($unknown in @($row.other_unknowns)) { if ($unknown) { $md.Add("    - other: $unknown") } }
+            foreach ($item in @($row.forward_uncertainties)) { if ($item) { $md.Add("    - forward: $item") } }
+            foreach ($item in @($row.material_gaps)) { if ($item) { $md.Add("    - GAP (blocks COMPLETE): $item") } }
         }
         foreach ($row in @($inspection.scores)) {
             $md.Add("- score $($row.ticker) $($row.hypothesis_kind) direction=$($row.direction)/$($row.direction_source) $($row.scoring_status) raw=$($row.raw_score) adjusted=$($row.confidence_adjusted_score) thesis=$($row.thesis_score) catalyst=$($row.catalyst_score) fundamental=$($row.fundamental_score) technical=$($row.technical_score) expectations=$($row.expectations_score) direction_ignored=$($row.possible_direction_ignored)")

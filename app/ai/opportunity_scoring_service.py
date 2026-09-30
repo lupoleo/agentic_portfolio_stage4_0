@@ -1189,6 +1189,7 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
         uncertainty = cls._canonical_factor_list([
             *research.unknowns,
             *research.contradictory_evidence,
+            *research.forward_uncertainties,
         ])
         return {
             "positive_factors": positive,
@@ -1281,6 +1282,7 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
                 "uncertainty_factors": [
                     "unknowns",
                     "contradictory_evidence",
+                    "forward_uncertainties",
                 ],
             },
             "component_fallback_sources": fallback_sources,
@@ -1812,6 +1814,7 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
         "key_risks": 400,
         "contradictory_evidence": 400,
         "unknowns": 400,
+        "forward_uncertainties": 400,
     }
 
     @classmethod
@@ -2021,6 +2024,7 @@ Bear case: {context["bear_case"]}
 Key risks: {context["key_risks"]}
 Contradictory evidence: {context["contradictory_evidence"]}
 Unknowns: {context["unknowns"]}
+Forward uncertainties: {context["forward_uncertainties"]}
 
 Return ONLY the typed JSON schema requested.
 

@@ -294,3 +294,25 @@ def test_r1_inspection_treats_quoted_volatility_as_forward_uncertainty(tmp_path)
     row = result["research"][0]
     assert row["volatility_listed_unknown"] is False
     assert row["volatility_forward_mentions"] == ["Volatility persistence beyond current 22.37% level"]
+
+
+def test_c2r1_inspection_reports_gaps_and_contract(tmp_path):
+    database = tmp_path / "state.db"
+    _inspection_db(database, adapter_version="stage4-research-technical-v2",
+                   volatility_text=True, research_unknowns=[])
+    with sqlite3.connect(database) as connection:
+        connection.execute("delete from opportunity_research")
+        research = {
+            "research_id": "RES-2", "ticker": "HPE", "research_status": "COMPLETE",
+            "evidence_quality": "HIGH", "unknowns": [],
+            "forward_uncertainties": ["Long-term impact of new contracts on margins"],
+            "metadata": {"research_contract": "ai-8c2-research-v2-forward-uncertainties"},
+        }
+        connection.execute(
+            "insert into opportunity_research values (?, ?)",
+            ("2026-09-30T12:30:00Z", json.dumps(research)),
+        )
+    result = harness.inspect_research(database, "2026-09-30T12:00:00Z")
+    assert result["c2r1_acceptance"] == "PASS"
+    assert result["complete_research_count"] == 1
+    assert result["research"][0]["material_gaps"] == []

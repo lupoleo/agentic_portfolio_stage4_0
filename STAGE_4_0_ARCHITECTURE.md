@@ -10,7 +10,7 @@
 | Baseline date | 2026-09-23 |
 | Last closed checkpoint | E2E-S4.0A.3 — Research Evidence Completion Bridge |
 | Active checkpoint | E2E-S4.0A — First Complete E2E Target — LIVE COMPLETION IN PROGRESS |
-| Regression baseline | 1665 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
+| Regression baseline | 1687 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -606,7 +606,7 @@ meaning of a policy decision.
 | Area | Checkpoint | Status at baseline |
 | --- | --- | --- |
 | Quantitative portfolio foundation | Stage 2.5 | CLOSED / FROZEN |
-| Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN |
+| Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN — reopened by AI-8C.2-R1 (forward uncertainties), live acceptance pending |
 | Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30; AI-8C.3-R2 (directional scoring) safety criteria ACCEPTED 2026-09-30, AI-8C.3-R2.1 (company-frame fundamental/expectations) safety met, consistency not met; SHORT materialization suspended pending AI-8C.3-R2.2 |
 | Portfolio Filter | PF-1A through PF-1H | CLOSED / FROZEN |
 | Exchange universe and provider policy | E2E-S2.1A through S2.1J | CLOSED |
@@ -1309,3 +1309,18 @@ until AI-8C.3-R2.2 introduces one shared, direction-free company assessment per
 listing. LONG materialization is unaffected. The same run scored HPE `NEW_LONG`
 at 64.7 confidence-adjusted, blocked only by a forward-looking research
 unknown, which motivates AI-8C.2-R1.
+
+### AI-8C.2-R1 — Missing As-Of Facts versus Forward Uncertainties (reopened frozen contract)
+
+Research now separates `unknowns` (facts knowable at the evidence date but not
+supplied) from `forward_uncertainties` (future outcomes no present evidence
+can establish). Forward uncertainties never by themselves prevent `COMPLETE`;
+a deterministic guard reclassifies any forward item that reads as missing
+as-of data, or that carries a material term without forward framing, as a
+material gap. The prompt no longer suggests "technical volatility is unknown",
+and an unknown claiming missing volatility now contradicts supplied TECHNICAL
+evidence. Prompt `opportunity-research-v1.4-forward-uncertainties`, contract
+`ai-8c2-research-v2-forward-uncertainties`. No status, quality, score or
+threshold rule is relaxed and software never promotes research to `COMPLETE`.
+Offline upper bound: research without material gaps rises from 9 to 26 of 151.
+Details: `docs/AI-8C.2-R1-FORWARD-UNCERTAINTIES.md`.

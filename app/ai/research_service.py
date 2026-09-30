@@ -35,7 +35,8 @@ from app.ai.research_semantics import (
 )
 
 
-RESEARCH_PROMPT_VERSION = "opportunity-research-v1.3"
+RESEARCH_PROMPT_VERSION = "opportunity-research-v1.4-forward-uncertainties"
+RESEARCH_CONTRACT_VERSION = "ai-8c2-research-v2-forward-uncertainties"
 
 # AI-7D.4D.3d: hard deterministic budgets for the repair input.
 # These protect the local 4096-token model from pathological initial outputs.
@@ -66,6 +67,7 @@ class ResearchModelOutput(AIModel):
     key_risks: list[str] = Field(default_factory=list)
     contradictory_evidence: list[str] = Field(default_factory=list)
     unknowns: list[str] = Field(default_factory=list)
+    forward_uncertainties: list[str] = Field(default_factory=list)
     evidence_quality: EvidenceQuality
     research_confidence: float = Field(ge=0.0, le=1.0)
     requires_additional_research: bool
@@ -462,6 +464,7 @@ class ResearchService:
             key_risks=output.key_risks,
             contradictory_evidence=output.contradictory_evidence,
             unknowns=output.unknowns,
+            forward_uncertainties=output.forward_uncertainties,
             evidence_quality=output.evidence_quality,
             research_confidence=output.research_confidence,
             evidence_ids=[x.evidence_id for x in evidence],
@@ -471,6 +474,12 @@ class ResearchService:
                 "provider": response.provider,
                 "model": response.model,
                 "prompt_version": self.prompt_version,
+                "research_contract": RESEARCH_CONTRACT_VERSION,
+                "material_gaps": self.coverage_validator.material_gaps(output),
+                "forward_items_reclassified_as_gaps": (
+                    self.coverage_validator.reclassified_forward_uncertainties(output)
+                ),
+                "forward_uncertainty_count": len(output.forward_uncertainties),
                 "repair_attempted": repair_attempted,
                 "deterministic_status_normalized": deterministic_status_normalized,
                 "deterministic_unknowns_canonicalized": (
@@ -660,6 +669,7 @@ class ResearchService:
         "key_risks",
         "contradictory_evidence",
         "unknowns",
+        "forward_uncertainties",
     )
 
     @classmethod
@@ -1099,6 +1109,7 @@ class ResearchService:
             "key_risks": all_dimensions,
             "contradictory_evidence": all_dimensions,
             "unknowns": all_dimensions,
+            "forward_uncertainties": all_dimensions,
         }
 
         requested: set[str] = set()
@@ -1188,6 +1199,9 @@ class ResearchService:
                     previous_output.contradictory_evidence
                 ),
                 "unknowns": len(previous_output.unknowns),
+                "forward_uncertainties": len(
+                    previous_output.forward_uncertainties
+                ),
             },
         }
         serialized = json.dumps(compact, indent=2, ensure_ascii=False)
@@ -1392,12 +1406,24 @@ EVIDENCE-ONLY RULES
 1. Use only facts supported by SUPPLIED EVIDENCE.
 2. Do not browse, infer missing numerical facts, invent consensus, valuation,
    analyst targets, technical indicators, events, guidance, or market data.
-3. Unsupported information belongs in unknowns when it is material.
+3. Material as-of information missing from the evidence belongs in unknowns.
 4. UNKNOWN means "not established by supplied evidence"; it does NOT mean
    that supported evidence cannot be analysed.
 5. Analyse every materially supported claim even when other important fields
    are missing.
 6. Distinguish evidence from interpretation. State uncertainty explicitly.
+
+UNKNOWNS VERSUS FORWARD UNCERTAINTIES
+U1. unknowns: facts that exist or should be knowable at the evidence date but
+    are not in the supplied evidence (e.g. latest quarterly margins, consensus
+    estimates, peer valuation). Phrase each as missing data.
+U2. forward_uncertainties: future outcomes that no evidence available today
+    can establish (future earnings path, sustainability of margins or
+    valuation, market reaction, deal or regulatory outcomes, timing).
+U3. Never put a missing as-of fact in forward_uncertainties and never put a
+    future outcome in unknowns.
+U4. Every investment has forward uncertainties. They never by themselves
+    require additional research or prevent COMPLETE.
 
 OUTPUT COMPACTION RULES
 16. The structured result must be concise. Do not reproduce or summarize full
@@ -1405,7 +1431,8 @@ OUTPUT COMPACTION RULES
 17. market_context, fundamental_context, technical_context, event_context and
     catalyst_assessment: maximum 3 short sentences each.
 18. bull_case and bear_case: maximum 2 short sentences each.
-19. key_risks, contradictory_evidence and unknowns: maximum 5 items each;
+19. key_risks, contradictory_evidence, unknowns and forward_uncertainties:
+    maximum 5 items each;
     every item must be one short sentence.
 20. Prefer null or an empty list to filler prose when evidence is absent.
 21. The entire JSON response should normally fit well below 6,000 output
@@ -1431,9 +1458,8 @@ STRUCTURED EVIDENCE UTILIZATION RULES
 9. Conversely, leave a field null when its category is genuinely unsupported.
    Do not fill fields merely for completeness.
 10. Do not list an item as unknown if the supplied evidence already establishes
-    it. You may list a narrower missing extension, e.g. "technical volatility
-    is unknown" when RSI and moving averages are supplied, but never
-    "technical indicators are unknown" in that case.
+    it. When RSI, moving averages, relative volume or volatility are supplied,
+    never list any of them, or "technical indicators", as unknown.
 11. bull_case and bear_case must synthesize implications from the structured
     evidence; they do not replace structured context fields.
 12. contradictory_evidence is for genuine tension among supplied facts or
@@ -1449,9 +1475,10 @@ EXPECTATIONS / PRICED-IN
 
 RESEARCH STATUS / QUALITY
 16. COMPLETE means the supplied evidence is sufficient for the requested
-    research assessment and no material additional research is required.
-17. PARTIAL means useful analysis is possible but material evidence remains
-    missing.
+    research assessment and no material as-of fact is missing from unknowns.
+    forward_uncertainties do not prevent COMPLETE.
+17. PARTIAL means useful analysis is possible but a material as-of fact
+    listed in unknowns remains missing.
 18. INSUFFICIENT_EVIDENCE means evidence is too weak to form a useful research
     assessment.
 19. LOW evidence quality plus material unknowns should normally be PARTIAL or
@@ -1478,6 +1505,8 @@ Before returning, perform this silent coverage check:
 - Preserve supplied numeric magnitudes and units exactly. Never shift a
   decimal place or silently rescale a fundamental value.
 - Remove unknowns that contradict facts already present in supplied evidence.
+- Every unknowns item is missing as-of data; every forward_uncertainties item
+  is a future outcome.
 """
 
     @staticmethod
