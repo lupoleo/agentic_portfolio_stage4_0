@@ -284,6 +284,16 @@ def hypothesis_direction(kind: ResearchHypothesisKind) -> Direction | None:
 ACCEPTED_DIRECTIONAL_SCORING_POLICIES = frozenset({"ai-8c3-directional-scoring-v2"})
 
 
+# Temporary safety switch (operator decision 2026-09-30). The R2.1 live run
+# showed that company-frame FUNDAMENTAL/EXPECTATIONS scores differ by up to
+# 22.5 points between the LONG and SHORT sides of the same listing, in both
+# directions. Until AI-8C.3-R2.2 introduces one shared company assessment per
+# listing, NEW_SHORT hypotheses are researched and scored but never
+# materialized. This is a code-level constant, not a policy field, so run and
+# session identities are unaffected.
+SHORT_MATERIALIZATION_ENABLED = False
+
+
 def scored_direction(score: OpportunityScore) -> str | None:
     """Direction recorded by an accepted directional scoring policy, if any."""
     diagnostics = (score.metadata or {}).get("scoring_diagnostics") or {}
@@ -396,6 +406,11 @@ def opportunity_materialization_decision(
             message="Opportunity requires a complete five-component score", score=score,
         )
     expected_direction = hypothesis_direction(hypothesis.kind)
+    if expected_direction is Direction.SHORT and not SHORT_MATERIALIZATION_ENABLED:
+        return OpportunityMaterializationDecision(
+            eligible=False, reason=HypothesisOutcomeReason.SHORT_MATERIALIZATION_SUSPENDED,
+            message="SHORT materialization is suspended until AI-8C.3-R2.2", score=score,
+        )
     if expected_direction is None or scored_direction(score) != expected_direction.value:
         return OpportunityMaterializationDecision(
             eligible=False, reason=HypothesisOutcomeReason.SCORE_DIRECTION_MISMATCH,

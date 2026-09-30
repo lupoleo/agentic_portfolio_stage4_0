@@ -224,6 +224,13 @@ def test_hypothesis_direction(kind, expected):
     assert hypothesis_direction(kind) is expected
 
 
+@pytest.fixture
+def short_enabled(monkeypatch):
+    import app.scanner.research_integration as integration
+
+    monkeypatch.setattr(integration, "SHORT_MATERIALIZATION_ENABLED", True)
+
+
 def _directional_hypotheses():
     hypotheses = build_research_hypotheses(universe(), created_at=NOW)
     long = next(h for h in hypotheses if h.kind is ResearchHypothesisKind.NEW_LONG)
@@ -237,7 +244,7 @@ def _direction_metadata(value, source="HYPOTHESIS", policy=DIRECTIONAL_SCORING_P
     }}}
 
 
-def test_materialization_rejects_score_without_direction():
+def test_materialization_rejects_score_without_direction(short_enabled):
     _, short = _directional_hypotheses()
     complete = integration_research(short)
     decision = opportunity_materialization_decision(
@@ -246,7 +253,7 @@ def test_materialization_rejects_score_without_direction():
     assert decision.reason is HypothesisOutcomeReason.SCORE_DIRECTION_MISMATCH
 
 
-def test_materialization_rejects_long_score_for_short_hypothesis():
+def test_materialization_rejects_long_score_for_short_hypothesis(short_enabled):
     _, short = _directional_hypotheses()
     complete = integration_research(short)
     decision = opportunity_materialization_decision(
@@ -266,7 +273,7 @@ def test_materialization_rejects_default_long_score():
     assert decision.reason is HypothesisOutcomeReason.SCORE_DIRECTION_MISMATCH
 
 
-def test_materialization_accepts_matching_directional_scores():
+def test_materialization_accepts_matching_directional_scores(short_enabled):
     for hypothesis in _directional_hypotheses():
         complete = integration_research(hypothesis)
         decision = opportunity_materialization_decision(
@@ -340,7 +347,7 @@ def test_prompt_asks_company_frame_for_bipolar_components():
     assert "- fundamental: company frame" in request.prompt
 
 
-def test_materialization_rejects_v1_directional_scores():
+def test_materialization_rejects_v1_directional_scores(short_enabled):
     _, short = _directional_hypotheses()
     complete = integration_research(short)
     decision = opportunity_materialization_decision(
@@ -350,3 +357,27 @@ def test_materialization_rejects_v1_directional_scores():
         )),
     )
     assert decision.reason is HypothesisOutcomeReason.SCORE_DIRECTION_MISMATCH
+
+
+def test_short_materialization_is_suspended_even_with_valid_short_score():
+    _, short = _directional_hypotheses()
+    complete = integration_research(short)
+    decision = opportunity_materialization_decision(
+        short, complete, integration_score(short, complete),
+    )
+    assert decision.reason is HypothesisOutcomeReason.SHORT_MATERIALIZATION_SUSPENDED
+
+
+def test_long_materialization_is_unaffected_by_short_suspension():
+    long, _ = _directional_hypotheses()
+    complete = integration_research(long)
+    decision = opportunity_materialization_decision(
+        long, complete, integration_score(long, complete),
+    )
+    assert decision.reason is HypothesisOutcomeReason.OPPORTUNITY_CREATED
+
+
+def test_short_suspension_is_replenishable():
+    from app.e2e.stage4_replenishment import REPLENISHABLE_REASONS
+
+    assert "SHORT_MATERIALIZATION_SUSPENDED" in REPLENISHABLE_REASONS

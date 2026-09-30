@@ -6,7 +6,7 @@
 | Reopened contract | AI-8C.3 — Opportunity Scoring |
 | Also affected | S2.F materialization gate (accepted directional policies) |
 | Branch | `e2e-s4.0a-validation-harness` (separate commit) |
-| Status | IMPLEMENTED — LIVE ACCEPTANCE PENDING |
+| Status | SAFETY CRITERIA MET — company-frame consistency NOT met (see §7); SHORT materialization suspended |
 | Approved by | Operator, 2026-09-30 |
 
 ## 1. Reason
@@ -88,3 +88,42 @@ Regression: 1,661 tests and 162 subtests passed.
 3. For each pair, the company-frame fundamental and expectations values of the
    LONG and SHORT sides are close (same company, same evidence), and the
    SHORT final values are their mirror. Operator review of the pair table.
+
+## 7. Acceptance evidence (2026-09-30)
+
+Validation run on the operator machine, commit `3790ea4` (tree `31522721`),
+two LIVE waves (NYSE:HPE, XETRA:FOO, BIT:BAMI, NYSE:GFI), 1,778 s.
+Regression 1,660 passed + 1 POSIX-only skip; Replay PASS; zero side effects.
+All eleven directional scores used `ai-8c3-directional-scoring-v2` with source
+`HYPOTHESIS`; no pair scored raw ≥ 60 on both sides.
+
+Criterion 3 failed. Company-frame FUNDAMENTAL values of the same listing:
+
+| Listing | LONG side | SHORT side | Final SHORT | Expected SHORT |
+| --- | ---: | ---: | ---: | ---: |
+| BAMI.MI | 42.5 | 65 | 35 | ~57.5 |
+| BAMI.MI (wave 2) | 37.5 | 60 | 40 | ~62.5 |
+| HPE | 62.5 | 47.5 | 52.5 | ~37.5 |
+| GFI | 62.5 | 70 | 30 | ~37.5 |
+| FOO.DE | 60 | 72.5 | 27.5 | ~40 |
+
+Gaps reach 22.5 points in both directions: on BAMI the model still inverted
+for the SHORT despite the instruction (double inversion penalised a valid
+SHORT); on HPE the SHORT fundamental was inflated by 15 points. Causes: the
+direction in the prompt contaminates the company-frame judgement, and each
+hypothesis has its own research text. Instructions alone cannot fix this.
+
+Decision (operator, 2026-09-30): SHORT materialization is suspended by a
+code-level switch (`SHORT_MATERIALIZATION_ENABLED = False`, outcome
+`SHORT_MATERIALIZATION_SUSPENDED`, replenishable). SHORT hypotheses are still
+researched and scored for measurement. The fix, AI-8C.3-R2.2, is one shared,
+direction-free company assessment per listing used by both hypotheses. LONG is
+unaffected: its company frame and directional frame coincide and no mirror is
+applied.
+
+Same run: HPE `NEW_LONG` scored confidence-adjusted 64.7 (above 60) with HIGH
+evidence quality and research confidence 0.85, and was excluded only as
+`RESEARCH_NOT_COMPLETE`; its single material unknown ("long-term impact of new
+contracts on margins") is a forward uncertainty. Four research listed
+volatility as unknown although the evidence stated it, echoing an example in
+the research prompt; both points are addressed by AI-8C.2-R1.

@@ -54,6 +54,8 @@ class HypothesisOutcomeReason(str, Enum):
     DIRECTIONAL_THESIS_MISSING = "DIRECTIONAL_THESIS_MISSING"
     # AI-8C.3-R2: the score was not computed for the hypothesis direction.
     SCORE_DIRECTION_MISMATCH = "SCORE_DIRECTION_MISMATCH"
+    # Temporary: SHORT scoring is not validated yet (AI-8C.3-R2.2 pending).
+    SHORT_MATERIALIZATION_SUSPENDED = "SHORT_MATERIALIZATION_SUSPENDED"
     PROCESSING_FAILED = "PROCESSING_FAILED"
 
 

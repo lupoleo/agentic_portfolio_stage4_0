@@ -10,7 +10,7 @@
 | Baseline date | 2026-09-23 |
 | Last closed checkpoint | E2E-S4.0A.3 — Research Evidence Completion Bridge |
 | Active checkpoint | E2E-S4.0A — First Complete E2E Target — LIVE COMPLETION IN PROGRESS |
-| Regression baseline | 1661 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
+| Regression baseline | 1665 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -607,7 +607,7 @@ meaning of a policy decision.
 | --- | --- | --- |
 | Quantitative portfolio foundation | Stage 2.5 | CLOSED / FROZEN |
 | Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN |
-| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30; AI-8C.3-R2 (directional scoring) safety criteria ACCEPTED 2026-09-30, AI-8C.3-R2.1 (company-frame fundamental/expectations) implemented, live acceptance pending |
+| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30; AI-8C.3-R2 (directional scoring) safety criteria ACCEPTED 2026-09-30, AI-8C.3-R2.1 (company-frame fundamental/expectations) safety met, consistency not met; SHORT materialization suspended pending AI-8C.3-R2.2 |
 | Portfolio Filter | PF-1A through PF-1H | CLOSED / FROZEN |
 | Exchange universe and provider policy | E2E-S2.1A through S2.1J | CLOSED |
 | Instrument taxonomy | E2E-S2.2A | CLOSED |
@@ -1300,3 +1300,12 @@ only v2 directional scores. On the 74 historical pairs, no SHORT scores raw
 ≥ 60 on a company with strong fundamentals (2 → 0); on the R2 live run the
 MIRM and BAS SHORT inflation is removed. Details:
 `docs/AI-8C.3-R2.1-COMPANY-FRAME-SCORING.md`.
+
+R2.1 live acceptance (2026-09-30): safety criteria met, but company-frame
+fundamentals of the same listing differed by up to 22.5 points between the
+LONG and SHORT sides, in both directions. By operator decision, SHORT
+materialization is suspended (`SHORT_MATERIALIZATION_SUSPENDED`, replenishable)
+until AI-8C.3-R2.2 introduces one shared, direction-free company assessment per
+listing. LONG materialization is unaffected. The same run scored HPE `NEW_LONG`
+at 64.7 confidence-adjusted, blocked only by a forward-looking research
+unknown, which motivates AI-8C.2-R1.
