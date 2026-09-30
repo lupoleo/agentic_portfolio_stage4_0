@@ -607,7 +607,7 @@ meaning of a policy decision.
 | --- | --- | --- |
 | Quantitative portfolio foundation | Stage 2.5 | CLOSED / FROZEN |
 | Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN |
-| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — reopened by AI-8C.3-R1 (canonical technical volatility), live acceptance pending |
+| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30 |
 | Portfolio Filter | PF-1A through PF-1H | CLOSED / FROZEN |
 | Exchange universe and provider policy | E2E-S2.1A through S2.1J | CLOSED |
 | Instrument taxonomy | E2E-S2.2A | CLOSED |
@@ -1241,3 +1241,17 @@ tests and acceptance criteria are recorded in
 `docs/AI-8C.3-R1-CANONICAL-TECHNICAL-VOLATILITY.md`. Acceptance requires a
 fresh LIVE replenishment session through the validation harness
 (`docs/E2E-S4.0A-VALIDATION-HARNESS.md`) with zero side effects.
+
+Accepted on 2026-09-30 (validation run `20260930T122357Z`): all new TECHNICAL
+evidence was v2 and stated volatility, and no new research or score listed
+volatility as unknown or uncertain. The four research remained `PARTIAL`;
+their remaining material unknowns are mostly forward-looking uncertainties
+rather than evidence gaps.
+
+Finding recorded for the next checkpoint: Opportunity Scoring is
+direction-blind. The deterministic technical base and the scoring prompt do
+not receive the hypothesis direction, so `NEW_LONG` and `NEW_SHORT` on the same
+listing receive the same technical score (63 of 74 persisted pairs; median raw
+score difference 2.86 points). Direction is applied only after eligibility.
+Today this is masked because no research reaches `COMPLETE`; any change that
+unblocks research completeness must be preceded by direction-aware scoring.

@@ -6,7 +6,7 @@
 | Reopened contract | AI-8C.3 — Opportunity Scoring (canonical technical input) |
 | Also affected | E2E-S4.0A.3 technical evidence adapter (orchestration layer) |
 | Branch | `e2e-s4.0a-validation-harness` (separate commit) |
-| Status | IMPLEMENTED — LIVE ACCEPTANCE PENDING |
+| Status | ACCEPTED — live evidence 2026-09-30 |
 | Approved by | Operator, 2026-09-30 |
 
 ## 1. Reason
@@ -109,3 +109,24 @@ scoring prompt version were updated. Regression: 1,627 tests and
 A selectable `TradeOpportunity` is not an acceptance criterion: it depends on
 evidence the market and providers supply, and producing one by relaxing a
 gate would violate the Stage 4 invariants.
+
+## 7. Acceptance evidence (2026-09-30)
+
+Validation run `20260930T122357Z` on the operator machine (Windows, Python
+3.10.11, branch `e2e-s4.0a-validation-harness`):
+
+| Criterion | Result |
+| --- | --- |
+| Offline regression | PASS: 1,626 passed, 1 skipped (POSIX-only harness test), 162 subtests |
+| Replay | PASS: `s4a-114bae62749acb7b6f14169f` reproduced, configuration fingerprint `12dc605b…`, zero sockets, zero new inference |
+| Live replenishment | PASS: session `s4a1-f113b073b4df6b7a8ec31b8a`, wave BIT:UCG + NYSE:AGO, four directional hypotheses, zero side effects, production database hash unchanged |
+| TECHNICAL evidence | 4 of 4 items `stage4-research-technical-v2`, contract `ai-8c3-canonical-technical-v2`, volatility stated in all |
+| Research unknowns | 0 of 4 research list volatility as unknown (before R1: 75 of 151) |
+| Score uncertainty factors | 0 of 4 scores list volatility as uncertain |
+
+All four research remained `PARTIAL` (`RESEARCH_NOT_COMPLETE`). Of the eleven
+remaining material unknowns, one is an evidence gap (latest AGO earnings
+details); the others are forward-looking uncertainties (future earnings,
+valuation sustainability, M&A impact) that no additional as-of evidence can
+remove. This is outside the AI-8C.3 scope and is recorded as the next
+research-contract finding.
