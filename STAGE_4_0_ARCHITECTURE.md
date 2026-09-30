@@ -10,7 +10,7 @@
 | Baseline date | 2026-09-23 |
 | Last closed checkpoint | E2E-S4.0A.3 — Research Evidence Completion Bridge |
 | Active checkpoint | E2E-S4.0A — First Complete E2E Target — LIVE COMPLETION IN PROGRESS |
-| Regression baseline | 1723 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
+| Regression baseline | 1730 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -606,7 +606,7 @@ meaning of a policy decision.
 | Area | Checkpoint | Status at baseline |
 | --- | --- | --- |
 | Quantitative portfolio foundation | Stage 2.5 | CLOSED / FROZEN |
-| Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN — AI-8C.2-R1 (forward uncertainties) ACCEPTED 2026-09-30; AI-8C.2-R2 (context gaps, confidence, bank fundamentals) implemented, live acceptance pending |
+| Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN — AI-8C.2-R1 (forward uncertainties) ACCEPTED 2026-09-30; AI-8C.2-R2 (context gaps, confidence, bank fundamentals) ACCEPTED 2026-09-30; AI-8C.2-R3 (fundamental reporting cycle) implemented, live acceptance pending |
 | Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30; AI-8C.3-R2 (directional scoring) safety criteria ACCEPTED 2026-09-30, AI-8C.3-R2.1 (company-frame fundamental/expectations) safety met, consistency not met; SHORT materialization suspended pending AI-8C.3-R2.2 |
 | Portfolio Filter | PF-1A through PF-1H | CLOSED / FROZEN |
 | Exchange universe and provider policy | E2E-S2.1A through S2.1J | CLOSED |
@@ -1350,3 +1350,20 @@ for banks. Prompt `opportunity-research-v1.5-context-gaps-confidence`, contract
 `yahoo-fundamental-evidence-v3-financials-aware`. Offline, on the R1 live run,
 research without a blocking gap rises from 0 to 3 of 10. Details:
 `docs/AI-8C.2-R2-CONTEXT-GAPS-CONFIDENCE.md`.
+
+AI-8C.2-R2 live acceptance (2026-09-30): the first two `COMPLETE` research of
+the system. WBD `NEW_LONG` reached the final gate (raw 61.75,
+confidence-adjusted 55.14 < 60) and UCG.MI `NEW_SHORT` was stopped by the SHORT
+suspension. Research confidence was 0.5–0.7 without repairs.
+
+### AI-8C.2-R3 — Fundamental Freshness Follows the Reporting Cycle
+
+Fundamental evidence is dated by its last reported quarter, which a uniform
+90-day staleness rule treated as stale for weeks after every quarter end,
+capping calendar-quarter reporters at MEDIUM evidence quality. Fundamentals
+are now fresh up to 45 days after the period end, current up to 135 days and
+stale beyond, with `FUNDAMENTAL_REPORTING_PERIOD_STALE`; other kinds keep the
+90-day rule. Policies `evidence-quality-v2-reporting-cycle` and
+`evidence-quality-v2-semantic-coverage-reporting-cycle`. "Comparative" joins
+the research comparison markers. Details:
+`docs/AI-8C.2-R3-FUNDAMENTAL-REPORTING-CYCLE.md`.

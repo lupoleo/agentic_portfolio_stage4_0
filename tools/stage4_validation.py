@@ -687,7 +687,22 @@ def inspect_research(database: Path, since: str) -> dict[str, Any]:
                 texts.setdefault(kind, []).append(
                     str(item.get("evidence", {}).get("text", ""))[:600]
                 )
+        fundamental_dates = [
+            str(item.get("evidence", {}).get("published_at"))
+            for item in bundle.get("items", [])
+            if item.get("kind") == "FUNDAMENTAL" and item.get("evidence", {}).get("published_at")
+        ]
+        fundamental_age = None
+        if fundamental_dates and bundle.get("created_at"):
+            try:
+                created = datetime.fromisoformat(str(bundle["created_at"]).replace("Z", "+00:00"))
+                quarter = datetime.fromisoformat(fundamental_dates[0].replace("Z", "+00:00"))
+                fundamental_age = round((created - quarter).total_seconds() / 86400.0, 1)
+            except ValueError:
+                fundamental_age = None
         bundle_summaries[str(bundle.get("bundle_id"))] = {
+            "fundamental_period_end": fundamental_dates[0] if fundamental_dates else None,
+            "fundamental_age_days": fundamental_age,
             "evidence_kinds": dict(sorted(kinds.items())),
             "warnings": [str(value) for value in bundle.get("warnings", [])][:10],
             "fundamental_and_analyst_texts": texts,
@@ -764,6 +779,8 @@ def inspect_research(database: Path, since: str) -> dict[str, Any]:
             "research_confidence_repaired": metadata.get("research_confidence_repaired"),
             "evidence_kinds": bundle_summaries.get(str(bundle_id), {}).get("evidence_kinds"),
             "bundle_warnings": bundle_summaries.get(str(bundle_id), {}).get("warnings"),
+            "fundamental_period_end": bundle_summaries.get(str(bundle_id), {}).get("fundamental_period_end"),
+            "fundamental_age_days": bundle_summaries.get(str(bundle_id), {}).get("fundamental_age_days"),
         })
 
     score_rows = [_score_row(record) for record in scores]

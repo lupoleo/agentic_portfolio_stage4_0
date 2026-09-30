@@ -106,7 +106,7 @@ class ResearchCoverageValidator:
     # COMPLETE. Each rule needs its underlying anchor in the evidence.
     _COMPARISON_MARKERS = (
         "peer", "relative to", "versus", " vs", "benchmark", "comparison",
-        "compared", "industry average", "sector average",
+        "compared", "comparative", "industry average", "sector average",
     )
     _VALUATION_TERMS = ("valuation", "p/e", "p/b", "multiple", "ev/ebitda", "price-to")
     _VALUATION_ANCHORS = ("p/e valuation multiple", "analyst price target mean")

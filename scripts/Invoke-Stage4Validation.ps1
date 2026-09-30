@@ -254,6 +254,7 @@ finally {
         foreach ($row in @($inspection.research)) {
             $md.Add("- research $($row.ticker) $($row.research_status) quality=$($row.evidence_quality) confidence=$($row.research_confidence) volatility_in_evidence=$($row.bundle_states_volatility) volatility_unknown=$($row.volatility_listed_unknown)")
             $md.Add("    - evidence kinds: $(($row.evidence_kinds | ConvertTo-Json -Compress)); bundle warnings: $(@($row.bundle_warnings) -join ' | ')")
+            $md.Add("    - fundamental period end: $($row.fundamental_period_end) (age $($row.fundamental_age_days) days)")
             foreach ($unknown in @($row.material_unknowns)) { if ($unknown) { $md.Add("    - MATERIAL: $unknown") } }
             foreach ($unknown in @($row.other_unknowns)) { if ($unknown) { $md.Add("    - other: $unknown") } }
             foreach ($item in @($row.forward_uncertainties)) { if ($item) { $md.Add("    - forward: $item") } }

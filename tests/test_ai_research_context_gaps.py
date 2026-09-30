@@ -68,6 +68,7 @@ def test_versions():
     "2026 full-year revenue guidance",               # analyst estimates supplied
     "Recent quarterly margins not disclosed",        # trailing margins supplied
     "Missing operating margin trends",
+    "Comparative sector P/E ratios not quantified.",  # live UCG LONG, AI-8C.2-R3
 ])
 def test_context_gaps_do_not_block_complete_when_anchor_is_supplied(item):
     assert ResearchCoverageCode.COMPLETE_WITH_MATERIAL_UNKNOWNS not in errors(

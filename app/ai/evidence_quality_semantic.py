@@ -210,7 +210,7 @@ class SemanticEvidenceQualityEvaluator:
 
         metadata = dict(base.metadata)
         metadata.update({
-            "policy": "evidence-quality-v1-semantic-coverage",
+            "policy": "evidence-quality-v2-semantic-coverage-reporting-cycle",
             "coverage_basis": "semantic_dimensions",
             "source_diversity_basis": "normalized_publisher_or_domain",
             "normalized_source_identities": sorted(identities),

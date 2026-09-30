@@ -326,3 +326,24 @@ def test_inspection_summarizes_evidence_kinds_per_research(tmp_path):
     result = harness.inspect_research(database, "2026-09-30T12:00:00Z")
     assert result["research"][0]["evidence_kinds"] == {"TECHNICAL": 1}
     assert result["evidence_bundles"]["evidence-1"]["warnings"] == []
+
+
+def test_inspection_reports_fundamental_period_age(tmp_path):
+    database = tmp_path / "state.db"
+    _inspection_db(database, adapter_version="stage4-research-technical-v2",
+                   volatility_text=True, research_unknowns=[])
+    with sqlite3.connect(database) as connection:
+        bundle = {
+            "bundle_id": "evidence-2", "ticker": "WBD", "created_at": "2026-09-30T19:08:10Z",
+            "items": [{"kind": "FUNDAMENTAL", "evidence": {
+                "text": "Fundamental company snapshot.", "published_at": "2026-06-30T00:00:00Z",
+            }}],
+        }
+        connection.execute(
+            "insert into scanner_evidence_bundles values (?, ?)",
+            ("2026-09-30T19:08:10Z", json.dumps(bundle)),
+        )
+    result = harness.inspect_research(database, "2026-09-30T12:00:00Z")
+    summary = result["evidence_bundles"]["evidence-2"]
+    assert summary["fundamental_period_end"] == "2026-06-30T00:00:00Z"
+    assert summary["fundamental_age_days"] == 92.8
