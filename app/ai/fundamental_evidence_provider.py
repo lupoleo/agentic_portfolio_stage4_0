@@ -19,7 +19,20 @@ from app.ai.research_service import ResearchEvidence
 
 
 SnapshotLoader = Callable[[str], Any]
-FUNDAMENTAL_EVIDENCE_POLICY_VERSION = "yahoo-fundamental-evidence-v2-unit-aware"
+FUNDAMENTAL_EVIDENCE_POLICY_VERSION = "yahoo-fundamental-evidence-v3-financials-aware"
+
+# AI-8C.2-R2: industrial metrics that are not meaningful for banks and other
+# deposit-funded financial companies (gross margin is reported as 0 and
+# operating cash flow swings with deposits and loans).
+_FINANCIAL_SECTOR_OMITTED_FIELDS = frozenset({
+    "grossMargins", "operatingCashflow", "freeCashflow",
+    "currentRatio", "quickRatio", "enterpriseToEbitda",
+})
+_FINANCIAL_SECTOR_NOTE = (
+    "Financial-sector company: gross margin, operating and free cash flow, "
+    "liquidity ratios and EV/EBITDA are not meaningful for banks and are "
+    "omitted; total debt includes funding liabilities."
+)
 
 _MONETARY_FIELDS = frozenset({
     "totalRevenue",
@@ -87,7 +100,10 @@ class YahooFundamentalEvidenceProvider(EvidenceProvider):
         currency = currency if isinstance(currency, str) else None
         facts: list[str] = []
         selected: dict[str, Any] = {}
+        financial_sector = self._is_financial_sector(raw)
         for key, label in _FIELDS:
+            if financial_sector and key in _FINANCIAL_SECTOR_OMITTED_FIELDS:
+                continue
             value = self._scalar(raw.get(key))
             if value is None:
                 continue
@@ -110,6 +126,8 @@ class YahooFundamentalEvidenceProvider(EvidenceProvider):
             as_of = self._utc(request.as_of)
             if quarter > as_of:
                 quarter = None
+        if financial_sector:
+            facts.append(_FINANCIAL_SECTOR_NOTE)
         text = "Fundamental company snapshot. " + " ".join(facts)
         digest = sha256(
             (
@@ -126,6 +144,7 @@ class YahooFundamentalEvidenceProvider(EvidenceProvider):
             "financial_currency": currency,
             "immutable_as_of": fetched_at.isoformat(),
             "policy_version": FUNDAMENTAL_EVIDENCE_POLICY_VERSION,
+            "financial_sector": financial_sector,
         }
         source = EvidenceSource(
             source_id=source_id,
@@ -160,6 +179,14 @@ class YahooFundamentalEvidenceProvider(EvidenceProvider):
             items=[item],
             fetched_at=fetched_at,
             metadata={"field_count": len(selected)},
+        )
+
+    @staticmethod
+    def _is_financial_sector(raw: dict[str, Any]) -> bool:
+        sector = str(raw.get("sector") or "").strip().lower()
+        industry = str(raw.get("industry") or "").strip().lower()
+        return sector == "financial services" and (
+            "bank" in industry or "insurance" in industry or not industry
         )
 
     @staticmethod

@@ -66,8 +66,10 @@ def codes(value, evidence=(TECHNICAL_WITH_VOLATILITY, NEWS)):
 
 
 def test_versions_are_explicit():
-    assert RESEARCH_PROMPT_VERSION == "opportunity-research-v1.4-forward-uncertainties"
-    assert RESEARCH_CONTRACT_VERSION == "ai-8c2-research-v2-forward-uncertainties"
+    # R1 introduced prompt v1.4 / contract v2; later revisions supersede them.
+    prompt_minor = int(RESEARCH_PROMPT_VERSION.split("-v1.", 1)[1].split("-", 1)[0])
+    contract_major = int(RESEARCH_CONTRACT_VERSION.split("-research-v", 1)[1].split("-", 1)[0])
+    assert prompt_minor >= 4 and contract_major >= 2
 
 
 def test_model_field_defaults_and_legacy_payload_loads():

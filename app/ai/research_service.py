@@ -35,8 +35,8 @@ from app.ai.research_semantics import (
 )
 
 
-RESEARCH_PROMPT_VERSION = "opportunity-research-v1.4-forward-uncertainties"
-RESEARCH_CONTRACT_VERSION = "ai-8c2-research-v2-forward-uncertainties"
+RESEARCH_PROMPT_VERSION = "opportunity-research-v1.5-context-gaps-confidence"
+RESEARCH_CONTRACT_VERSION = "ai-8c2-research-v3-context-gaps"
 
 # AI-7D.4D.3d: hard deterministic budgets for the repair input.
 # These protect the local 4096-token model from pathological initial outputs.
@@ -248,12 +248,14 @@ class ResearchService:
         )
 
         inferences = [inference]
+        initial_research_confidence = output.research_confidence
         coverage = self.coverage_validator.validate(output, evidence)
         semantic = self.semantic_evaluator.evaluate(output, evidence)
         missing_required_contexts = self._missing_required_context_fields(
             output,
             required_context_fields,
         )
+        confidence_repair_requested = self._confidence_incoherent(coverage)
         repair_attempted = False
         deterministic_status_normalized = False
         deterministic_unknowns_canonicalized = False
@@ -263,9 +265,12 @@ class ResearchService:
             not coverage.is_valid
             or not semantic.is_valid
             or missing_required_contexts
+            or confidence_repair_requested
         ):
             repair_attempted = True
             repairable_fields = self._repairable_fields(coverage, semantic)
+            if confidence_repair_requested:
+                repairable_fields.add("research_confidence")
             repairable_fields.update(
                 self._context_presence_repairable_fields(
                     missing_required_contexts
@@ -475,7 +480,19 @@ class ResearchService:
                 "model": response.model,
                 "prompt_version": self.prompt_version,
                 "research_contract": RESEARCH_CONTRACT_VERSION,
-                "material_gaps": self.coverage_validator.material_gaps(output),
+                "material_gaps": self.coverage_validator.material_gaps(
+                    output, self.coverage_validator.evidence_blob(evidence)
+                ),
+                "context_gaps": self.coverage_validator.context_gaps(
+                    self.coverage_validator.material_unknowns(output)
+                    + self.coverage_validator.reclassified_forward_uncertainties(output),
+                    self.coverage_validator.evidence_blob(evidence),
+                ),
+                "initial_research_confidence": initial_research_confidence,
+                "research_confidence_repaired": (
+                    confidence_repair_requested
+                    and output.research_confidence != initial_research_confidence
+                ),
                 "forward_items_reclassified_as_gaps": (
                     self.coverage_validator.reclassified_forward_uncertainties(output)
                 ),
@@ -1064,10 +1081,39 @@ class ResearchService:
             f"{coverage.repair_instructions()}\n\n"
             f"{self._semantic_repair_instructions(semantic)}\n\n"
             f"{self._context_presence_repair_instructions(allowed_fields)}\n\n"
+            f"{self._confidence_repair_instructions(coverage, allowed_fields)}\n\n"
             "SUPPLIED EVIDENCE\n"
             f"{evidence_block}\n\n"
             "PREVIOUS STRUCTURED OUTPUT\n"
             f"{previous_block}\n"
+        )
+
+    @staticmethod
+    def _confidence_incoherent(coverage: ResearchCoverageReport) -> bool:
+        return any(
+            issue.code.value == "RESEARCH_CONFIDENCE_INCOHERENT"
+            for issue in coverage.issues
+        )
+
+    @classmethod
+    def _confidence_repair_instructions(
+        cls,
+        coverage: ResearchCoverageReport,
+        allowed_fields: set[str],
+    ) -> str:
+        if "research_confidence" not in allowed_fields or not cls._confidence_incoherent(coverage):
+            return ""
+        messages = [
+            issue.message for issue in coverage.issues
+            if issue.code.value == "RESEARCH_CONFIDENCE_INCOHERENT"
+        ]
+        return (
+            "RESEARCH CONFIDENCE REPAIR\n"
+            + "\n".join(f"- {message}" for message in messages)
+            + "\n- Return research_confidence using the anchors: 0.2 weak or "
+            "conflicting evidence; 0.5 mixed evidence; 0.7 clear evidence with "
+            "material uncertainty; 0.85 or more broad, consistent evidence.\n"
+            "- Do not change any other field."
         )
 
     @staticmethod
@@ -1424,6 +1470,11 @@ U3. Never put a missing as-of fact in forward_uncertainties and never put a
     future outcome in unknowns.
 U4. Every investment has forward uncertainties. They never by themselves
     require additional research or prevent COMPLETE.
+U5. A comparison or finer granularity of a measure the evidence supplies
+    (peer or sector valuation when P/E or analyst targets are supplied,
+    company guidance when analyst estimates are supplied, the latest quarter
+    when trailing margins are supplied) may be listed in unknowns but does not
+    by itself require additional research or prevent COMPLETE.
 
 OUTPUT COMPACTION RULES
 16. The structured result must be concise. Do not reproduce or summarize full
@@ -1485,6 +1536,12 @@ RESEARCH STATUS / QUALITY
     INSUFFICIENT_EVIDENCE, not COMPLETE.
 20. requires_additional_research must be true for INSUFFICIENT_EVIDENCE.
     COMPLETE must not require additional research.
+20b. research_confidence (0.0-1.0) is your confidence that this assessment
+    correctly characterises the opportunity from the supplied evidence, not
+    the probability that a trade succeeds. Anchors: 0.2 weak or conflicting
+    evidence; 0.5 mixed evidence; 0.7 clear evidence with material
+    uncertainty; 0.85 or more broad, consistent evidence. Never 0.0 when the
+    evidence supports a useful assessment.
 
 DECISION BOUNDARY
 21. Do not recommend LONG, SHORT, BUY, SELL, position size, entry, stop or

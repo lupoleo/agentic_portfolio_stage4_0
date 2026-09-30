@@ -306,7 +306,8 @@ def test_c2r1_inspection_reports_gaps_and_contract(tmp_path):
             "research_id": "RES-2", "ticker": "HPE", "research_status": "COMPLETE",
             "evidence_quality": "HIGH", "unknowns": [],
             "forward_uncertainties": ["Long-term impact of new contracts on margins"],
-            "metadata": {"research_contract": "ai-8c2-research-v2-forward-uncertainties"},
+            "research_confidence": 0.85,
+            "metadata": {"research_contract": "ai-8c2-research-v3-context-gaps"},
         }
         connection.execute(
             "insert into opportunity_research values (?, ?)",

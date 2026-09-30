@@ -725,9 +725,14 @@ def inspect_research(database: Path, since: str) -> dict[str, Any]:
         unknowns = [str(item) for item in record.get("unknowns", [])]
         forward = [str(item) for item in record.get("forward_uncertainties", []) or []]
         material = [item for item in unknowns if any(term in item.lower() for term in terms)]
-        gaps = validator.material_gaps(
-            SimpleNamespace(unknowns=unknowns, forward_uncertainties=forward)
-        )
+        metadata = record.get("metadata") or {}
+        # Research from contract v3 on records gaps computed with its evidence
+        # (context gaps exempted); recomputing without evidence would overcount.
+        gaps = metadata.get("material_gaps")
+        if not isinstance(gaps, list):
+            gaps = validator.material_gaps(
+                SimpleNamespace(unknowns=unknowns, forward_uncertainties=forward)
+            )
         bundle_id = research_bundle.get(str(record.get("research_id")))
         research_rows.append({
             "research_id": record.get("research_id"),
@@ -753,20 +758,40 @@ def inspect_research(database: Path, since: str) -> dict[str, Any]:
             "other_unknowns": [item for item in unknowns if item not in material],
             "forward_uncertainties": forward,
             "material_gaps": gaps,
-            "research_contract": (record.get("metadata") or {}).get("research_contract"),
+            "research_contract": metadata.get("research_contract"),
+            "context_gaps": metadata.get("context_gaps") or [],
+            "initial_research_confidence": metadata.get("initial_research_confidence"),
+            "research_confidence_repaired": metadata.get("research_confidence_repaired"),
             "evidence_kinds": bundle_summaries.get(str(bundle_id), {}).get("evidence_kinds"),
             "bundle_warnings": bundle_summaries.get(str(bundle_id), {}).get("warnings"),
         })
 
     score_rows = [_score_row(record) for record in scores]
+    from app.ai.research_service import RESEARCH_CONTRACT_VERSION
+
     c2r1_checks = [
         _check(
-            "every new research uses ai-8c2-research-v2-forward-uncertainties",
+            f"every new research uses {RESEARCH_CONTRACT_VERSION}",
             bool(research_rows) and all(
-                row["research_contract"] == "ai-8c2-research-v2-forward-uncertainties"
+                row["research_contract"] == RESEARCH_CONTRACT_VERSION
                 for row in research_rows
             ),
             sorted({str(row["research_contract"]) for row in research_rows}),
+        ),
+        _check(
+            "no MEDIUM/HIGH-quality research keeps research_confidence below 0.2",
+            not any(
+                row["evidence_quality"] in ("MEDIUM", "HIGH")
+                and row["research_status"] != "INSUFFICIENT_EVIDENCE"
+                and row["research_confidence"] is not None
+                and float(row["research_confidence"]) < 0.2
+                for row in research_rows
+            ),
+            [row["research_id"] for row in research_rows
+             if row["evidence_quality"] in ("MEDIUM", "HIGH")
+             and row["research_status"] != "INSUFFICIENT_EVIDENCE"
+             and row["research_confidence"] is not None
+             and float(row["research_confidence"]) < 0.2],
         ),
         _check(
             "no COMPLETE research contains a material gap",

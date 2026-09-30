@@ -72,7 +72,7 @@ def get_prompt():
 
 
 def test_prompt_version_bumped():
-    assert RESEARCH_PROMPT_VERSION == "opportunity-research-v1.4-forward-uncertainties"
+    assert RESEARCH_PROMPT_VERSION == "opportunity-research-v1.5-context-gaps-confidence"
 
 
 def test_prompt_distinguishes_unknown_from_unsupported():
@@ -119,5 +119,5 @@ def test_prompt_forbids_empty_analysis_due_to_uncertainty():
 
 def test_inference_uses_new_prompt_version():
     result = ResearchService(FakeProvider()).research(candidate(), evidence(), now=NOW)
-    assert result.inference.prompt_version == "opportunity-research-v1.4-forward-uncertainties"
-    assert result.research.metadata["prompt_version"] == "opportunity-research-v1.4-forward-uncertainties"
+    assert result.inference.prompt_version == "opportunity-research-v1.5-context-gaps-confidence"
+    assert result.research.metadata["prompt_version"] == "opportunity-research-v1.5-context-gaps-confidence"
