@@ -16,6 +16,10 @@ from app.ai.evidence_provider import (
 from app.ai.research_service import ResearchEvidence
 
 
+# v2 (AI-8C.3-R1) adds the Stage-2 20-session annualized volatility.
+TECHNICAL_EVIDENCE_ADAPTER_VERSION = "stage4-research-technical-v2"
+
+
 class CanonicalTechnicalEvidenceAdapter:
     """Convert the frozen Stage-2 technical input into research evidence."""
 
@@ -52,6 +56,10 @@ class CanonicalTechnicalEvidenceAdapter:
             f"Close versus SMA50: {value.close_vs_sma50_pct:.4f}%.",
             f"RSI14: {value.rsi14:.4f}.",
             f"RVOL: {value.rvol:.4f}x.",
+            self._percent(
+                "20-session annualized volatility",
+                value.volatility_20d_pct,
+            ),
             f"Canonical trend: {value.trend}.",
         ]
         text = " ".join(part for part in facts if part is not None)
@@ -63,6 +71,7 @@ class CanonicalTechnicalEvidenceAdapter:
         metadata: dict[str, Any] = {
             "ticker": request.ticker,
             "canonical_source": value.source,
+            "canonical_technical_contract": value.contract_version,
             "immutable_as_of": timestamp.isoformat(),
         }
         source = EvidenceSource(
@@ -90,7 +99,7 @@ class CanonicalTechnicalEvidenceAdapter:
             source=source,
             kind=EvidenceKind.TECHNICAL,
             ticker=request.ticker,
-            metadata={"adapter_version": "stage4-research-technical-v1"},
+            metadata={"adapter_version": TECHNICAL_EVIDENCE_ADAPTER_VERSION},
         )
         return EvidenceFetchResult(
             provider=self.provider_name,
@@ -98,7 +107,7 @@ class CanonicalTechnicalEvidenceAdapter:
             status=EvidenceFetchStatus.SUCCESS,
             items=[item],
             fetched_at=timestamp,
-            metadata={"adapter_version": "stage4-research-technical-v1"},
+            metadata={"adapter_version": TECHNICAL_EVIDENCE_ADAPTER_VERSION},
         )
 
     @staticmethod

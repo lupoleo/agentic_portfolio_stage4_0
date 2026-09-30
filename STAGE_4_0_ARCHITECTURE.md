@@ -10,7 +10,7 @@
 | Baseline date | 2026-09-23 |
 | Last closed checkpoint | E2E-S4.0A.3 — Research Evidence Completion Bridge |
 | Active checkpoint | E2E-S4.0A — First Complete E2E Target — LIVE COMPLETION IN PROGRESS |
-| Regression baseline | 1620 tests passed; 162 subtests passed |
+| Regression baseline | 1627 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -607,7 +607,7 @@ meaning of a policy decision.
 | --- | --- | --- |
 | Quantitative portfolio foundation | Stage 2.5 | CLOSED / FROZEN |
 | Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN |
-| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN |
+| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — reopened by AI-8C.3-R1 (canonical technical volatility), live acceptance pending |
 | Portfolio Filter | PF-1A through PF-1H | CLOSED / FROZEN |
 | Exchange universe and provider policy | E2E-S2.1A through S2.1J | CLOSED |
 | Instrument taxonomy | E2E-S2.2A | CLOSED |
@@ -1216,3 +1216,28 @@ fail-closed result `EXCLUDED / RESEARCH_NOT_COMPLETE`. Focused governance tests
 passed and the complete regression closed with 1,620 tests and 162 subtests.
 E2E-S4.0A remains active and returns to bounded replenishment for the next
 candidate; no business threshold or execution policy was relaxed.
+
+### AI-8C.3-R1 — Canonical Technical Volatility (reopened frozen contract)
+
+Live S4.0A evidence showed that research almost never reaches `COMPLETE`:
+189 of 191 persisted research records are `PARTIAL`. One structural cause was
+internal. Stage 2 computes a deterministic 20-session annualized volatility,
+but the frozen canonical technical input did not carry it, while the research
+coverage validator treats a volatility unknown as material and incompatible
+with `COMPLETE`.
+
+AI-8C.3-R1 explicitly reopens AI-8C.3 to add `volatility_20d_pct` to
+`CanonicalTechnicalInput` (contract `ai-8c3-canonical-technical-v2`), states
+it in TECHNICAL evidence (`stage4-research-technical-v2`) and exposes it to
+Opportunity Scoring (`opportunity-scoring-v12-canonical-technical-volatility`).
+Undefined values stay `None`. No research, completeness, quality, score,
+confidence or technical-base-score rule changes, and persisted v1 records are
+not rewritten.
+
+The change is necessary but not sufficient: only 3 of 151 recent research
+records had volatility as their sole material unknown. Sector/peer context and
+fundamentals remain the dominant evidence gaps. Reason, impact, migration,
+tests and acceptance criteria are recorded in
+`docs/AI-8C.3-R1-CANONICAL-TECHNICAL-VOLATILITY.md`. Acceptance requires a
+fresh LIVE replenishment session through the validation harness
+(`docs/E2E-S4.0A-VALIDATION-HARNESS.md`) with zero side effects.

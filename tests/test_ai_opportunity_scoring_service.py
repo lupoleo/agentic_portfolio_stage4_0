@@ -495,7 +495,7 @@ def test_default_prompt_version_marks_canonical_technical_input_v5():
     service = OpportunityScoringService(FakeProvider(output()))
     assert (
         service.prompt_version
-        == "opportunity-scoring-v11-score-rationale-consistency-diagnostics"
+        == "opportunity-scoring-v12-canonical-technical-volatility"
     )
 
 
@@ -605,7 +605,7 @@ def test_default_prompt_version_marks_canonical_technical_input_v5():
     service = OpportunityScoringService(FakeProvider(output()))
     assert (
         service.prompt_version
-        == "opportunity-scoring-v11-score-rationale-consistency-diagnostics"
+        == "opportunity-scoring-v12-canonical-technical-volatility"
     )
 
 

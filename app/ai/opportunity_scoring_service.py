@@ -74,7 +74,7 @@ class OpportunityScoringService:
         provider: Any,
         *,
         calculator: OpportunityScoreCalculator | None = None,
-        prompt_version: str = "opportunity-scoring-v11-score-rationale-consistency-diagnostics",
+        prompt_version: str = "opportunity-scoring-v12-canonical-technical-volatility",
         normalize_provider_transport: bool = False,
     ) -> None:
         self.provider = provider
@@ -1369,8 +1369,10 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
             ),
             "rsi_regime": cls._rsi_regime(numbers["rsi14"]),
             "volume_regime": cls._rvol_regime(numbers["rvol"]),
+            "volatility_20d_pct": canonical_technical_input.volatility_20d_pct,
             "stage2_trend": canonical_technical_input.trend,
             "technical_input_source": canonical_technical_input.source,
+            "technical_input_contract": canonical_technical_input.contract_version,
         }
 
         directional = [
@@ -1591,6 +1593,7 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
             "close_vs_sma50_pct",
             "rsi14",
             "rvol",
+            "volatility_20d_pct",
             "momentum_1d",
             "momentum_5d",
             "momentum_20d",
@@ -1603,6 +1606,7 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
             "technical_bias",
             "stage2_trend",
             "technical_input_source",
+            "technical_input_contract",
         )
         return "\n".join(
             f"- {name}: {features.get(name)}"
