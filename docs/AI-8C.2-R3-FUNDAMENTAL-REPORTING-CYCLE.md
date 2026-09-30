@@ -5,7 +5,7 @@
 | Type | Revision of a reopened contract (AI-8C.2 evidence quality) |
 | Changed | `EvidenceQualityEvaluator` freshness for FUNDAMENTAL evidence; research comparison markers |
 | Branch | `e2e-s4.0a-validation-harness` (separate commit) |
-| Status | IMPLEMENTED — LIVE ACCEPTANCE PENDING |
+| Status | ACCEPTED 2026-09-30 |
 | Approved by | Operator, 2026-09-30 |
 
 ## 1. Reason
@@ -65,3 +65,23 @@ Regression: 1,730 tests and 162 subtests passed.
 2. One fresh LIVE session in which the inspection shows fundamental period ends
    and ages, research with fundamentals within 135 days are not demoted for
    staleness, and all AI-8C.2 and AI-8C.3 checks pass with zero side effects.
+
+## 6. Acceptance evidence (2026-09-30)
+
+Validation run on the operator machine, commit `72ac9d3` (tree `889990e2`),
+two LIVE waves (NASDAQ:WBD, NYSE:NIO, BIT:BAMI, BIT:UCG), 1,115 s.
+Regression 1,729 passed + 1 POSIX-only skip; Replay PASS; zero side effects;
+all AI-8C.2 and AI-8C.3 checks PASS.
+
+- Every bundle's fundamental period ended on 2026-06-30, 92.8 days before the
+  run; no bundle carried a stale-period warning.
+- All eight research were HIGH evidence quality (previous run: all MEDIUM).
+- WBD `NEW_LONG` scored raw 65.4 and confidence-adjusted 58.97 (previous run
+  55.14 at MEDIUM), but its research stayed `PARTIAL`: the blocking gap was
+  "Netflix's revenue growth and subscriber metrics", data about another
+  company named in the news.
+- NIO `NEW_SHORT`: `COMPLETE`, confidence-adjusted 55.5, stopped by the SHORT
+  suspension.
+- Company-frame values still diverged within pairs (BAMI fundamental 50 vs
+  72.5, NIO expectations 50 vs 65, WBD fundamental 52.5 vs 37.5), confirming
+  the need for AI-8C.3-R2.2.
