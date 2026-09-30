@@ -122,6 +122,7 @@ def score(hypothesis, research_value, **overrides):
         data["metadata"] = {"scoring_diagnostics": {"direction": {
             "direction": direction.value,
             "direction_source": "HYPOTHESIS",
+            "policy_version": "ai-8c3-directional-scoring-v2",
         }}}
     data.update(overrides)
     return OpportunityScore(**data)

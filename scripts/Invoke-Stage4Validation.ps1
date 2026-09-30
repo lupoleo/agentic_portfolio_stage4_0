@@ -261,7 +261,7 @@ finally {
             $md.Add("- [$(if ($check.passed) { 'x' } else { ' ' })] $($check.name): $(($check.detail | ConvertTo-Json -Compress -Depth 4))")
         }
         foreach ($pair in @($inspection.direction_pairs)) {
-            $md.Add("- pair $($pair.ticker): LONG raw=$($pair.long_raw) technical=$($pair.long_technical) | SHORT raw=$($pair.short_raw) technical=$($pair.short_technical)")
+            $md.Add("- pair $($pair.ticker): LONG raw=$($pair.long_raw) technical=$($pair.long_technical) [thesis,catalyst,fundamental,expectations]=$(@($pair.components_long) -join '/') | SHORT raw=$($pair.short_raw) technical=$($pair.short_technical) [thesis,catalyst,fundamental,expectations]=$(@($pair.components_short) -join '/') | company-frame fundamental,expectations LONG=$(($pair.company_frame_long | ConvertTo-Json -Compress)) SHORT=$(($pair.company_frame_short | ConvertTo-Json -Compress))")
         }
     }
     $md.Add('')

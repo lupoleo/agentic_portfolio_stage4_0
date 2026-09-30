@@ -10,7 +10,7 @@
 | Baseline date | 2026-09-23 |
 | Last closed checkpoint | E2E-S4.0A.3 — Research Evidence Completion Bridge |
 | Active checkpoint | E2E-S4.0A — First Complete E2E Target — LIVE COMPLETION IN PROGRESS |
-| Regression baseline | 1654 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
+| Regression baseline | 1661 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -607,7 +607,7 @@ meaning of a policy decision.
 | --- | --- | --- |
 | Quantitative portfolio foundation | Stage 2.5 | CLOSED / FROZEN |
 | Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN |
-| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30; AI-8C.3-R2 (directional scoring) safety criteria ACCEPTED 2026-09-30, semantic follow-up AI-8C.3-R2.1 proposed |
+| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30; AI-8C.3-R2 (directional scoring) safety criteria ACCEPTED 2026-09-30, AI-8C.3-R2.1 (company-frame fundamental/expectations) implemented, live acceptance pending |
 | Portfolio Filter | PF-1A through PF-1H | CLOSED / FROZEN |
 | Exchange universe and provider policy | E2E-S2.1A through S2.1J | CLOSED |
 | Instrument taxonomy | E2E-S2.2A | CLOSED |
@@ -1288,3 +1288,15 @@ produced the first live `COMPLETE` research and first `SCORED` score
 (BAMI.MI `NEW_SHORT`, confidence-adjusted 56.6, below the 60 threshold).
 Proposed next: AI-8C.3-R2.1, company-frame scoring with software mirroring for
 fundamental and expectations, before AI-8C.2-R1.
+
+### AI-8C.3-R2.1 — Company-Frame Scoring for Bipolar Components
+
+Approved by the operator after the R2 live acceptance. FUNDAMENTAL and
+EXPECTATIONS are now scored by the model from the company's point of view for
+every hypothesis and mirrored in software for SHORT, like TECHNICAL. THESIS and
+CATALYST stay directional. Policy `ai-8c3-directional-scoring-v2`, prompt
+`opportunity-scoring-v14-directional-company-frame`; materialization accepts
+only v2 directional scores. On the 74 historical pairs, no SHORT scores raw
+≥ 60 on a company with strong fundamentals (2 → 0); on the R2 live run the
+MIRM and BAS SHORT inflation is removed. Details:
+`docs/AI-8C.3-R2.1-COMPANY-FRAME-SCORING.md`.

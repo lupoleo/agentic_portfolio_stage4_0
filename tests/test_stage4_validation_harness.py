@@ -231,7 +231,10 @@ def _score_payload(kind, direction, raw, source="HYPOTHESIS"):
         "technical_score": 50.0,
         "metadata": {
             "hypothesis_kind": kind,
-            "scoring_diagnostics": {"direction": {"direction": direction, "direction_source": source}},
+            "scoring_diagnostics": {"direction": {
+                "direction": direction, "direction_source": source,
+                "policy_version": "ai-8c3-directional-scoring-v2",
+            }},
         },
     }
 
@@ -268,7 +271,7 @@ def test_r2_inspection_rejects_contradictory_or_undirected_scores(tmp_path):
     ])
     result = harness.inspect_research(database, "2026-09-30T12:00:00Z")
     assert result["r2_acceptance"] == "FAIL"
-    assert [check["passed"] for check in result["r2_checks"]] == [False, False]
+    assert [check["passed"] for check in result["r2_checks"]] == [False, True, False]
 
 
 def test_r2_inspection_is_not_applicable_without_directional_scores(tmp_path):

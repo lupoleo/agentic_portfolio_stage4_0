@@ -123,6 +123,7 @@ def _stub_diagnostics(direction):
         diagnostics["direction"] = {
             "direction": direction.value,
             "direction_source": "HYPOTHESIS",
+            "policy_version": "ai-8c3-directional-scoring-v2",
         }
     return diagnostics
 

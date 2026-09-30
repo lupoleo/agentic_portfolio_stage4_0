@@ -809,6 +809,8 @@ def _score_row(record: dict[str, Any]) -> dict[str, Any]:
         "hypothesis_kind": metadata.get("hypothesis_kind"),
         "direction": direction.get("direction"),
         "direction_source": direction.get("direction_source"),
+        "directional_policy": direction.get("policy_version"),
+        "company_frame_components": direction.get("company_frame_components"),
         "possible_direction_ignored": direction.get("possible_direction_ignored"),
         "scoring_status": record.get("scoring_status"),
         "raw_score": record.get("raw_score"),
@@ -845,6 +847,8 @@ def _r2_checks(score_rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
             "short_technical": short_row["technical_score"],
             "components_long": [long_row[f"{name}_score"] for name in ("thesis", "catalyst", "fundamental", "expectations")],
             "components_short": [short_row[f"{name}_score"] for name in ("thesis", "catalyst", "fundamental", "expectations")],
+            "company_frame_long": long_row["company_frame_components"],
+            "company_frame_short": short_row["company_frame_components"],
         })
 
     def both_supported(pair: dict[str, Any]) -> bool:
@@ -853,13 +857,24 @@ def _r2_checks(score_rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
             and float(pair["long_raw"]) >= 60.0 and float(pair["short_raw"]) >= 60.0
         )
 
+    from app.scanner.research_integration import ACCEPTED_DIRECTIONAL_SCORING_POLICIES
+
     mismatched = [
         row["opportunity_score_id"] for row in directional
         if row["direction_source"] != "HYPOTHESIS"
         or row["direction"] != _KIND_DIRECTION[row["hypothesis_kind"]]
     ]
+    unaccepted = [
+        row["opportunity_score_id"] for row in directional
+        if row["directional_policy"] not in ACCEPTED_DIRECTIONAL_SCORING_POLICIES
+    ]
     checks = [
         _check("every directional score records its hypothesis direction", not mismatched, mismatched),
+        _check(
+            "every directional score uses an accepted directional policy",
+            not unaccepted,
+            unaccepted,
+        ),
         _check(
             "no LONG/SHORT pair where both sides score raw >= 60",
             not any(both_supported(pair) for pair in pairs),

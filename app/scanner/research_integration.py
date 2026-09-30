@@ -278,13 +278,21 @@ def hypothesis_direction(kind: ResearchHypothesisKind) -> Direction | None:
     return None
 
 
+# Directional scoring policies whose SHORT scores are trusted for
+# materialization. v1 (AI-8C.3-R2) let the model invert fundamental and
+# expectations itself, which live evidence showed to be unreliable.
+ACCEPTED_DIRECTIONAL_SCORING_POLICIES = frozenset({"ai-8c3-directional-scoring-v2"})
+
+
 def scored_direction(score: OpportunityScore) -> str | None:
-    """Direction recorded by directional scoring (AI-8C.3-R2), if any."""
+    """Direction recorded by an accepted directional scoring policy, if any."""
     diagnostics = (score.metadata or {}).get("scoring_diagnostics") or {}
     direction = diagnostics.get("direction") if isinstance(diagnostics, dict) else None
     if not isinstance(direction, dict):
         return None
     if direction.get("direction_source") != "HYPOTHESIS":
+        return None
+    if direction.get("policy_version") not in ACCEPTED_DIRECTIONAL_SCORING_POLICIES:
         return None
     value = direction.get("direction")
     return str(value) if value else None

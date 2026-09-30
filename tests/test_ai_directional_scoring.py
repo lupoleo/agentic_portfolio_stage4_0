@@ -135,7 +135,7 @@ def test_score_declares_direction_in_prompt_metadata_and_diagnostics():
     assert "HYPOTHESIS DIRECTION: SHORT" in request.prompt
     assert "support for a SHORT position" in request.prompt
     assert request.metadata["direction"] == "SHORT"
-    assert request.metadata["prompt_version"] == "opportunity-scoring-v13-directional"
+    assert request.metadata["prompt_version"] == "opportunity-scoring-v14-directional-company-frame"
     diagnostics = result.diagnostics["direction"]
     assert diagnostics["policy_version"] == DIRECTIONAL_SCORING_POLICY
     assert diagnostics["direction"] == "SHORT"
@@ -231,8 +231,10 @@ def _directional_hypotheses():
     return long, short
 
 
-def _direction_metadata(value, source="HYPOTHESIS"):
-    return {"scoring_diagnostics": {"direction": {"direction": value, "direction_source": source}}}
+def _direction_metadata(value, source="HYPOTHESIS", policy=DIRECTIONAL_SCORING_POLICY):
+    return {"scoring_diagnostics": {"direction": {
+        "direction": value, "direction_source": source, "policy_version": policy,
+    }}}
 
 
 def test_materialization_rejects_score_without_direction():
@@ -277,3 +279,74 @@ def test_direction_mismatch_is_a_replenishable_reason():
     from app.e2e.stage4_replenishment import REPLENISHABLE_REASONS
 
     assert "SCORE_DIRECTION_MISMATCH" in REPLENISHABLE_REASONS
+
+
+# --- AI-8C.3-R2.1: company-frame fundamental and expectations -----------------
+
+
+def test_policy_is_v2():
+    assert DIRECTIONAL_SCORING_POLICY == "ai-8c3-directional-scoring-v2"
+
+
+def _scores_for(direction):
+    provider = FakeProvider(output(
+        fundamental={"score": 80, "rationale": "Strong revenue growth.", "supporting_evidence_ids": ["E1"]},
+        expectations={"score": 30, "rationale": "Demanding expectations.", "supporting_evidence_ids": ["E2"]},
+    ))
+    result = OpportunityScoringService(provider).score(
+        research(), evidence_coverage_score=.80, direction=direction,
+        canonical_technical_input=canonical_input(ticker="PATH"),
+    )
+    return provider.requests[0], result
+
+
+def test_company_frame_components_are_mirrored_for_short_only():
+    _, long_result = _scores_for(Direction.LONG)
+    _, short_result = _scores_for(Direction.SHORT)
+    for name in ("fundamental", "expectations"):
+        long_score = getattr(long_result.components, name).score
+        short_score = getattr(short_result.components, name).score
+        assert long_score is not None and short_score is not None
+        assert long_score + short_score == pytest.approx(100.0)
+    frame = short_result.diagnostics["direction"]["company_frame_components"]
+    assert frame["fundamental"] == long_result.components.fundamental.score
+    assert short_result.diagnostics["direction"]["mirrored_components"] == ["fundamental", "expectations"]
+    assert long_result.diagnostics["direction"]["mirrored_components"] == []
+
+
+def test_directional_components_are_not_mirrored():
+    _, long_result = _scores_for(Direction.LONG)
+    _, short_result = _scores_for(Direction.SHORT)
+    assert long_result.components.thesis.score == short_result.components.thesis.score
+    assert long_result.components.catalyst.score == short_result.components.catalyst.score
+
+
+def test_strong_company_fundamentals_count_against_a_short():
+    _, result = _scores_for(Direction.SHORT)
+    assert result.components.fundamental.score < 50.0
+
+
+def test_null_company_frame_score_stays_null():
+    payload = output(expectations={"score": None, "rationale": None, "supporting_evidence_ids": []})
+    mirrored = OpportunityScoringService._mirror_company_frame_components(payload, Direction.SHORT)
+    assert mirrored["expectations"]["score"] is None
+    assert mirrored["fundamental"]["score"] == pytest.approx(35.0)
+
+
+def test_prompt_asks_company_frame_for_bipolar_components():
+    request, _ = _scores_for(Direction.SHORT)
+    assert "FUNDAMENTAL and EXPECTATIONS are always scored from the company's" in request.prompt
+    assert "do not invert them yourself" in request.prompt
+    assert "- fundamental: company frame" in request.prompt
+
+
+def test_materialization_rejects_v1_directional_scores():
+    _, short = _directional_hypotheses()
+    complete = integration_research(short)
+    decision = opportunity_materialization_decision(
+        short, complete,
+        integration_score(short, complete, metadata=_direction_metadata(
+            "SHORT", policy="ai-8c3-directional-scoring-v1"
+        )),
+    )
+    assert decision.reason is HypothesisOutcomeReason.SCORE_DIRECTION_MISMATCH

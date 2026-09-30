@@ -60,7 +60,10 @@ from app.cio.models import Direction
 
 
 # AI-8C.3-R2: scores measure support for the hypothesis direction.
-DIRECTIONAL_SCORING_POLICY = "ai-8c3-directional-scoring-v1"
+# R2.1 (v2): fundamental and expectations are scored in the company frame and
+# mirrored in software for SHORT, like the technical component.
+DIRECTIONAL_SCORING_POLICY = "ai-8c3-directional-scoring-v2"
+COMPANY_FRAME_COMPONENTS = ("fundamental", "expectations")
 
 
 @dataclass(frozen=True)
@@ -79,7 +82,7 @@ class OpportunityScoringService:
         provider: Any,
         *,
         calculator: OpportunityScoreCalculator | None = None,
-        prompt_version: str = "opportunity-scoring-v13-directional",
+        prompt_version: str = "opportunity-scoring-v14-directional-company-frame",
         normalize_provider_transport: bool = False,
     ) -> None:
         self.provider = provider
@@ -198,6 +201,14 @@ class OpportunityScoringService:
                 scorable_mask,
             )
 
+        company_frame_scores = self._component_score_snapshot(transport_output)
+        company_frame_scores = {
+            name: company_frame_scores.get(name) for name in COMPANY_FRAME_COMPONENTS
+        }
+        transport_output = self._mirror_company_frame_components(
+            transport_output, resolved_direction
+        )
+
         factor_extraction_applied = not self.normalize_provider_transport
         factor_diagnostics = {
             "applied": False,
@@ -247,6 +258,11 @@ class OpportunityScoringService:
             technical_features,
             ai_technical_opinion,
             components.technical.score,
+        )
+        diagnostics["direction"]["company_frame_components"] = company_frame_scores
+        diagnostics["direction"]["mirrored_components"] = (
+            list(COMPANY_FRAME_COMPONENTS)
+            if resolved_direction is Direction.SHORT else []
         )
 
         calculation = self.calculator.calculate(
@@ -304,6 +320,39 @@ class OpportunityScoringService:
             ),
             "final_technical_score": final_technical_score,
         }
+
+    @staticmethod
+    def _mirror_company_frame_components(
+        structured_output: Any,
+        direction: Direction,
+    ) -> dict[str, Any]:
+        """Convert company-frame fundamental/expectations scores for SHORT.
+
+        The model scores these bipolar components from the company's point of
+        view for every hypothesis. For SHORT, support is the mirror image
+        around the neutral 50 anchor. Null scores stay null; rationales and
+        evidence references are unchanged. LONG output is returned as is.
+        """
+        if hasattr(structured_output, "model_dump"):
+            payload = structured_output.model_dump()
+        elif isinstance(structured_output, dict):
+            payload = dict(structured_output)
+        else:
+            raise ValueError(
+                "Opportunity scoring structured_output must be a mapping or model"
+            )
+        if direction is not Direction.SHORT:
+            return payload
+        for name in COMPANY_FRAME_COMPONENTS:
+            assessment = payload.get(name)
+            if hasattr(assessment, "model_dump"):
+                assessment = assessment.model_dump()
+            if not isinstance(assessment, dict) or assessment.get("score") is None:
+                continue
+            assessment = dict(assessment)
+            assessment["score"] = max(0.0, min(100.0, 100.0 - float(assessment["score"])))
+            payload[name] = assessment
+        return payload
 
     _COMPONENT_NAMES = (
         "thesis",
@@ -551,16 +600,25 @@ class OpportunityScoringService:
 
     @staticmethod
     def _direction_rule(direction: Direction) -> str:
+        company_frame = (
+            "FUNDAMENTAL and EXPECTATIONS are always scored from the company's "
+            "point of view, whatever the direction: strong business evidence or "
+            "favorable asymmetry for the company scores high, weak or adverse "
+            "evidence scores low. Software converts them for the hypothesis "
+            "direction; do not invert them yourself."
+        )
         if direction is Direction.SHORT:
             return (
-                "Every component score measures support for a SHORT position: "
-                "evidence that the price is likely to fall is supportive (high "
-                "score); evidence of strength is adverse (low score)."
+                "THESIS, CATALYST and TECHNICAL measure support for a SHORT "
+                "position: evidence that the price is likely to fall is "
+                "supportive (high score); evidence of strength is adverse (low "
+                "score). " + company_frame
             )
         return (
-            "Every component score measures support for a LONG position: "
-            "evidence that the price is likely to rise is supportive (high "
-            "score); evidence of weakness is adverse (low score)."
+            "THESIS, CATALYST and TECHNICAL measure support for a LONG "
+            "position: evidence that the price is likely to rise is supportive "
+            "(high score); evidence of weakness is adverse (low score). "
+            + company_frame
         )
 
     @staticmethod
@@ -1767,16 +1825,13 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
                 "- catalyst: credible near-term negative developments are supportive;",
                 "  positive catalysts are adverse; no identifiable catalyst stays null",
                 "  or weak and is never supportive by itself.",
-                "- fundamental: deteriorating revenue, earnings, margins, cash flow,",
-                "  guidance or balance sheet, or a stretched valuation, are supportive;",
-                "  strong fundamentals are adverse.",
+                "- fundamental: company frame, exactly as for a LONG (see above).",
                 "- technical: canonical labels keep their elementary meaning (price",
                 "  above/below the average, positive/negative momentum), but their",
                 "  support is inverted: NEGATIVE broad alignment usually belongs in",
                 "  65-80 and POSITIVE broad alignment in 20-40. The deterministic",
                 "  technical base score above is already expressed for the SHORT.",
-                "- expectations: demanding or adverse expectations are supportive;",
-                "  favorable asymmetry for the company is adverse.",
+                "- expectations: company frame, exactly as for a LONG (see above).",
             ])
         return "\n".join(lines)
 
