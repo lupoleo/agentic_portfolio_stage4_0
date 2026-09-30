@@ -1,0 +1,656 @@
+"""E2E-S4.0A validation harness.
+
+Operational tooling only: it does not change any frozen business contract.
+Every run happens in an isolated sandbox directory that receives a consistent
+SQLite copy of the state database, so the production database under
+``data/state`` is only ever opened read-only.
+
+Subcommands::
+
+    python -m tools.stage4_validation preflight --out preflight.json
+    python -m tools.stage4_validation replay --workdir DIR --out replay.json
+    python -m tools.stage4_validation live --workdir DIR --out live.json
+
+``replay`` resumes an existing root S4.0A run in ``CACHE_ONLY`` mode using the
+verbatim persisted configuration and request, with outbound sockets blocked.
+It proves run identity, zero network, zero LLM inference and zero side effects.
+
+``live`` executes the real bounded replenishment CLI against the sandbox copy
+with a small wave budget. It never touches the production database.
+"""
+from __future__ import annotations
+
+import argparse
+from contextlib import contextmanager
+from datetime import datetime, timezone
+import hashlib
+import importlib.metadata
+import json
+import os
+from pathlib import Path, PureWindowsPath
+import platform
+import re
+import shutil
+import socket
+import sqlite3
+import subprocess
+import sys
+import time
+from typing import Any, Iterator
+from urllib import request as urllib_request
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+ROOT_REPORT_DIRECTORY = Path("data/cache/e2e/stage4/first_complete_e2e")
+ROOT_REPORT_PREFIX = "stage4_first_complete_e2e_"
+LISTING_REFERENCES = Path("config/scanner/listing_start_references_v1.json")
+COUNTED_TABLES = (
+    "ai_inferences",
+    "trade_opportunities",
+    "trade_proposals",
+    "execution_plans",
+    "portfolio_snapshots",
+    "stage4_e2e_runs",
+    "stage4_e2e_stage_attempts",
+    "scanner_research_outcomes",
+    "stage4_candidate_replenishment_sessions",
+    "stage4_candidate_replenishment_waves",
+)
+_WINDOWS_ABSOLUTE = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
+
+
+class HarnessError(RuntimeError):
+    """Raised when the harness refuses to continue."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(f"{code}: {message}")
+        self.code = code
+
+
+# ---------------------------------------------------------------------------
+# Path handling
+# ---------------------------------------------------------------------------
+
+
+def is_windows_absolute(value: str) -> bool:
+    return bool(_WINDOWS_ABSOLUTE.match(value))
+
+
+def is_host_absolute(value: str) -> bool:
+    """True when the string is an absolute path on the current OS."""
+    if os.name == "nt":
+        return PureWindowsPath(value).is_absolute()
+    return value.startswith("/")
+
+
+def _parts(value: str) -> list[str]:
+    return [part for part in re.split(r"[\\/]+", value) if part]
+
+
+def locate_source(value: str, repo_root: Path = REPO_ROOT) -> Path:
+    """Locate the repository file that a persisted path string refers to.
+
+    Persisted paths may be relative to the original working directory or
+    absolute on the operator's Windows machine. Absolute paths on the current
+    OS are used as they are. Foreign absolute paths are rebased onto the
+    repository by locating the repository folder name inside the path.
+    """
+    if is_host_absolute(value):
+        return Path(value)
+    parts = _parts(value)
+    if is_windows_absolute(value):
+        names = [part.lower() for part in parts]
+        anchor = repo_root.name.lower()
+        if anchor in names:
+            index = len(names) - 1 - names[::-1].index(anchor)
+            return repo_root.joinpath(*parts[index + 1:])
+        raise HarnessError(
+            "FOREIGN_ABSOLUTE_PATH",
+            f"cannot rebase {value!r} onto repository {repo_root}",
+        )
+    return repo_root.joinpath(*parts)
+
+
+def sandbox_target(workdir: Path, value: str) -> Path | None:
+    """Return where a persisted path string resolves inside the sandbox.
+
+    ``None`` means the path is absolute on this OS and is used in place.
+    The string is joined verbatim so the child process, whose working
+    directory is the sandbox, resolves exactly the persisted string.
+    """
+    if is_host_absolute(value):
+        return None
+    return Path(os.path.join(str(workdir), value))
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def sqlite_consistent_copy(source: Path, target: Path) -> None:
+    """Copy a SQLite database through the backup API (WAL-safe, read-only)."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        target.unlink()
+    uri = source.resolve().as_uri() + "?mode=ro"
+    with sqlite3.connect(uri, uri=True) as src, sqlite3.connect(str(target)) as dst:
+        src.backup(dst)
+
+
+def table_counts(database: Path) -> dict[str, int | None]:
+    uri = database.resolve().as_uri() + "?mode=ro"
+    counts: dict[str, int | None] = {}
+    with sqlite3.connect(uri, uri=True) as connection:
+        existing = {
+            row[0]
+            for row in connection.execute(
+                "select name from sqlite_master where type='table'"
+            )
+        }
+        for table in COUNTED_TABLES:
+            counts[table] = (
+                connection.execute(f"select count(*) from {table}").fetchone()[0]
+                if table in existing else None
+            )
+    return counts
+
+
+# ---------------------------------------------------------------------------
+# Root report and sandbox materialisation
+# ---------------------------------------------------------------------------
+
+
+def find_root_report(run_id: str | None, repo_root: Path = REPO_ROOT) -> Path:
+    directory = repo_root / ROOT_REPORT_DIRECTORY
+    if run_id:
+        path = directory / f"{ROOT_REPORT_PREFIX}{run_id}.json"
+        if not path.is_file():
+            raise HarnessError("ROOT_REPORT_NOT_FOUND", str(path))
+        return path
+    candidates = sorted(
+        directory.glob(f"{ROOT_REPORT_PREFIX}s4a-*.json"),
+        key=lambda item: item.stat().st_mtime,
+    )
+    if not candidates:
+        raise HarnessError("ROOT_REPORT_NOT_FOUND", str(directory))
+    return candidates[-1]
+
+
+def _copy_into_sandbox(workdir: Path, value: str, repo_root: Path) -> dict[str, Any]:
+    target = sandbox_target(workdir, value)
+    source = locate_source(value, repo_root)
+    if not source.exists():
+        raise HarnessError("SOURCE_MISSING", f"{value!r} -> {source}")
+    if target is None:
+        return {"path": value, "mode": "IN_PLACE_READ_ONLY", "source": str(source)}
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if source.is_dir():
+        shutil.copytree(source, target, dirs_exist_ok=True)
+    else:
+        shutil.copy2(source, target)
+    return {"path": value, "mode": "COPIED", "source": str(source)}
+
+
+def materialize_sandbox(
+    report: dict[str, Any],
+    workdir: Path,
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    configuration = report["configuration"]
+    request = report["request"]
+    run = report["run"]
+    if configuration.get("selected_parameters") is not None:
+        raise HarnessError(
+            "SELECTED_PARAMETERS_NOT_SUPPORTED",
+            "replay supports root runs without operator overlay",
+        )
+    database_path = configuration["database_path"]
+    if is_host_absolute(database_path) or is_windows_absolute(database_path):
+        raise HarnessError(
+            "ABSOLUTE_DB_PATH_REFUSED",
+            "an absolute database path cannot be redirected to a sandbox "
+            "without changing the run identity",
+        )
+    workdir.mkdir(parents=True, exist_ok=True)
+    source_database = locate_source(database_path, repo_root)
+    if not source_database.is_file():
+        raise HarnessError("SOURCE_MISSING", str(source_database))
+    sandbox_database = sandbox_target(workdir, database_path)
+    assert sandbox_database is not None
+    sqlite_consistent_copy(source_database, sandbox_database)
+
+    files = [
+        _copy_into_sandbox(workdir, request["portfolio_file"], repo_root),
+        _copy_into_sandbox(workdir, configuration["eligibility_report_path"], repo_root),
+        _copy_into_sandbox(workdir, configuration["mapping_report_path"], repo_root),
+    ]
+    files.extend(
+        _copy_into_sandbox(workdir, value, repo_root)
+        for value in configuration["history_report_paths"]
+    )
+    if run.get("watch_universe_report_path"):
+        files.append(
+            _copy_into_sandbox(workdir, run["watch_universe_report_path"], repo_root)
+        )
+
+    portfolio = sandbox_target(workdir, request["portfolio_file"]) or Path(
+        request["portfolio_file"]
+    )
+    portfolio_fingerprint = sha256_file(portfolio)
+    return {
+        "workdir": str(workdir),
+        "source_database": str(source_database),
+        "sandbox_database": str(sandbox_database),
+        "files": files,
+        "portfolio_fingerprint_matches": (
+            portfolio_fingerprint == request["portfolio_file_fingerprint"]
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Network guard
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def block_network() -> Iterator[list[str]]:
+    """Block outbound socket connections and record every attempt."""
+    attempts: list[str] = []
+    original_connect = socket.socket.connect
+    original_connect_ex = socket.socket.connect_ex
+    original_create = socket.create_connection
+
+    def refuse(address: Any) -> None:
+        attempts.append(repr(address))
+        raise ConnectionRefusedError(f"validation harness blocked {address!r}")
+
+    def connect(self, address):  # noqa: ANN001
+        refuse(address)
+
+    def connect_ex(self, address):  # noqa: ANN001
+        refuse(address)
+
+    def create_connection(address, *args, **kwargs):  # noqa: ANN001
+        refuse(address)
+
+    socket.socket.connect = connect  # type: ignore[method-assign]
+    socket.socket.connect_ex = connect_ex  # type: ignore[method-assign]
+    socket.create_connection = create_connection  # type: ignore[assignment]
+    try:
+        yield attempts
+    finally:
+        socket.socket.connect = original_connect  # type: ignore[method-assign]
+        socket.socket.connect_ex = original_connect_ex  # type: ignore[method-assign]
+        socket.create_connection = original_create  # type: ignore[assignment]
+
+
+@contextmanager
+def working_directory(path: Path) -> Iterator[None]:
+    previous = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(previous)
+
+
+# ---------------------------------------------------------------------------
+# Checks
+# ---------------------------------------------------------------------------
+
+
+def _check(name: str, passed: bool, detail: Any = None) -> dict[str, Any]:
+    return {"name": name, "passed": bool(passed), "detail": detail}
+
+
+def _verdict(checks: list[dict[str, Any]]) -> str:
+    return "PASS" if all(item["passed"] for item in checks) else "FAIL"
+
+
+def _write(path: Path | None, value: dict[str, Any]) -> None:
+    text = json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False, default=str)
+    if path is not None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text + "\n", encoding="utf-8")
+    print(text)
+
+
+def _git(*args: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def _requirements() -> dict[str, str]:
+    pins: dict[str, str] = {}
+    for name in ("requirements.txt", "requirements-scanner-history.txt"):
+        path = REPO_ROOT / name
+        if not path.is_file():
+            continue
+        raw = path.read_bytes()
+        encoding = "utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8-sig"
+        for line in raw.decode(encoding).splitlines():
+            line = line.split("#", 1)[0].strip()
+            if "==" in line:
+                package, version = line.split("==", 1)
+                pins[package.strip()] = version.strip()
+    return pins
+
+
+def run_preflight(args: argparse.Namespace) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    warnings: list[str] = []
+
+    checks.append(_check("python>=3.10", sys.version_info >= (3, 10), sys.version))
+    mismatched = {}
+    for package, expected in _requirements().items():
+        try:
+            installed = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            installed = None
+        if installed != expected:
+            mismatched[package] = {"expected": expected, "installed": installed}
+    checks.append(_check("requirements pinned versions installed", not mismatched, mismatched))
+
+    database = REPO_ROOT / "data" / "state" / "portfolio_cio.db"
+    checks.append(_check("state database present", database.is_file(), str(database)))
+    try:
+        report = find_root_report(args.run_id)
+        checks.append(_check("root S4.0A report present", True, str(report)))
+    except HarnessError as exc:
+        checks.append(_check("root S4.0A report present", False, str(exc)))
+
+    if "onedrive" in str(REPO_ROOT).lower():
+        warnings.append(
+            "Repository is inside OneDrive: SQLite files under sync can be "
+            "locked or corrupted during writes. Prefer a non-synced folder."
+        )
+
+    live_checks: list[dict[str, Any]] = []
+    try:
+        with urllib_request.urlopen(f"{args.ollama_url.rstrip('/')}/api/tags", timeout=5) as response:
+            tags = json.loads(response.read().decode("utf-8"))
+        models = sorted(item.get("name", "") for item in tags.get("models", []))
+        live_checks.append(_check("ollama reachable", True, args.ollama_url))
+        live_checks.append(_check(f"ollama model {args.model} pulled", args.model in models, models))
+    except Exception as exc:  # noqa: BLE001 - diagnostic surface
+        live_checks.append(_check("ollama reachable", False, repr(exc)))
+
+    if not args.skip_yahoo:
+        try:
+            import yfinance
+
+            started = time.monotonic()
+            history = yfinance.Ticker(args.yahoo_probe).history(period="5d", interval="1d")
+            live_checks.append(
+                _check(
+                    f"yahoo history reachable ({args.yahoo_probe})",
+                    not history.empty,
+                    {"rows": int(len(history)), "seconds": round(time.monotonic() - started, 2)},
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - diagnostic surface
+            live_checks.append(_check(f"yahoo history reachable ({args.yahoo_probe})", False, repr(exc)))
+
+    return {
+        "step": "preflight",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "platform": platform.platform(),
+        "python": sys.executable,
+        "repo_root": str(REPO_ROOT),
+        "git_branch": _git("rev-parse", "--abbrev-ref", "HEAD"),
+        "git_commit": _git("rev-parse", "HEAD"),
+        "git_dirty": bool(_git("status", "--porcelain")),
+        "checks": checks,
+        "live_checks": live_checks,
+        "live_ready": all(item["passed"] for item in live_checks),
+        "warnings": warnings,
+        "verdict": _verdict(checks),
+    }
+
+
+def run_replay(args: argparse.Namespace) -> dict[str, Any]:
+    from app.e2e.stage4_contracts import Stage4E2ERequest, Stage4Mode
+    from app.e2e.stage4_runtime import CanonicalStage4Runtime, Stage4RuntimeConfiguration
+    from app.e2e.stage4_service import Stage4E2EService
+    from app.e2e.stage4_store import Stage4E2EStore
+
+    report_path = find_root_report(args.run_id)
+    report = json.loads(report_path.read_text(encoding="utf-8-sig"))
+    expected_run_id = report["run"]["run_id"]
+    workdir = Path(args.workdir).resolve()
+    sandbox = materialize_sandbox(report, workdir)
+    source_database = Path(sandbox["source_database"])
+    sandbox_database = Path(sandbox["sandbox_database"])
+    source_hash_before = sha256_file(source_database)
+    counts_before = table_counts(sandbox_database)
+
+    configuration = Stage4RuntimeConfiguration(**report["configuration"])
+    request_payload = dict(report["request"])
+    request_payload["mode"] = Stage4Mode.CACHE_ONLY.value
+    request = Stage4E2ERequest(**request_payload)
+
+    error = None
+    run = None
+    started = time.monotonic()
+    with working_directory(workdir), block_network() as network_attempts:
+        try:
+            store = Stage4E2EStore(configuration.database_path)
+            service = Stage4E2EService(
+                store=store,
+                adapters=CanonicalStage4Runtime(configuration).adapters(),
+            )
+            run = service.run(request, now=datetime.now(timezone.utc))
+        except Exception as exc:  # noqa: BLE001 - reported as a failed check
+            error = repr(exc)
+    elapsed = round(time.monotonic() - started, 2)
+
+    counts_after = table_counts(sandbox_database)
+    source_hash_after = sha256_file(source_database)
+    checks = [
+        _check("replay completed without exception", error is None, error),
+        _check("portfolio file fingerprint matches persisted request", sandbox["portfolio_fingerprint_matches"]),
+        _check("configuration fingerprint reproduced", configuration.fingerprint == report["configuration_fingerprint"],
+               {"expected": report["configuration_fingerprint"], "actual": configuration.fingerprint}),
+    ]
+    if run is not None:
+        checks.extend([
+            _check("run identity reproduced", run.run_id == expected_run_id,
+                   {"expected": expected_run_id, "actual": run.run_id}),
+            _check("mode is CACHE_ONLY", run.mode.value == "CACHE_ONLY", run.mode.value),
+            _check("run reports zero network calls", run.network_calls == 0, run.network_calls),
+            _check("zero side effects", not any((run.broker_orders_submitted, run.portfolio_mutations, run.automatic_executions)),
+                   [run.broker_orders_submitted, run.portfolio_mutations, run.automatic_executions]),
+            _check("still a non-authorized dry run", run.dry_run and not run.execution_authorized),
+        ])
+    checks.extend([
+        _check("no outbound socket attempted", not network_attempts, network_attempts[:10]),
+        _check("no new LLM inference persisted", counts_after["ai_inferences"] == counts_before["ai_inferences"],
+               [counts_before["ai_inferences"], counts_after["ai_inferences"]]),
+        _check("no execution plan created", counts_after["execution_plans"] == counts_before["execution_plans"],
+               [counts_before["execution_plans"], counts_after["execution_plans"]]),
+        _check("production database untouched", source_hash_before == source_hash_after, source_hash_after[:16]),
+    ])
+    return {
+        "step": "replay",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "root_report": str(report_path),
+        "expected_run_id": expected_run_id,
+        "sandbox": sandbox,
+        "elapsed_seconds": elapsed,
+        "run": run.model_dump(mode="json") if run is not None else None,
+        "table_counts_before": counts_before,
+        "table_counts_after": counts_after,
+        "checks": checks,
+        "verdict": _verdict(checks),
+    }
+
+
+def run_live(args: argparse.Namespace) -> dict[str, Any]:
+    report_path = find_root_report(args.run_id)
+    report = json.loads(report_path.read_text(encoding="utf-8-sig"))
+    configuration = report["configuration"]
+    request = report["request"]
+    run = report["run"]
+    workdir = Path(args.workdir).resolve()
+    sandbox = materialize_sandbox(report, workdir)
+    source_database = Path(sandbox["source_database"])
+    sandbox_database = Path(sandbox["sandbox_database"])
+    source_hash_before = sha256_file(source_database)
+    counts_before = table_counts(sandbox_database)
+
+    stamp = datetime.now(timezone.utc)
+    output_directory = Path("validation_output") / stamp.strftime("%Y%m%dT%H%M%SZ")
+    command = [
+        sys.executable, "-m", "tools.live_stage4_candidate_replenishment",
+        "--root-run-id", run["run_id"],
+        "--portfolio-file", request["portfolio_file"],
+        "--eligibility-report", configuration["eligibility_report_path"],
+        "--mapping-report", configuration["mapping_report_path"],
+        "--as-of", stamp.isoformat().replace("+00:00", "Z"),
+        "--mode", args.mode,
+        "--db", configuration["database_path"],
+        "--output-directory", str(output_directory),
+        "--listing-references", str(REPO_ROOT / LISTING_REFERENCES),
+        "--model", args.model,
+        "--max-waves", str(args.max_waves),
+        "--max-hypotheses", str(args.max_hypotheses),
+    ]
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = os.pathsep.join(
+        [str(REPO_ROOT), *([environment["PYTHONPATH"]] if environment.get("PYTHONPATH") else [])]
+    )
+    environment["PYTHONIOENCODING"] = "utf-8"
+    log_path = Path(args.log) if args.log else workdir / "live_cli.log"
+    started = time.monotonic()
+    timed_out = False
+    with log_path.open("w", encoding="utf-8") as log:
+        log.write("$ " + " ".join(command) + "\n\n")
+        log.flush()
+        process = subprocess.Popen(
+            command, cwd=workdir, env=environment,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace",
+        )
+        assert process.stdout is not None
+        deadline = started + args.timeout_seconds
+        for line in process.stdout:
+            sys.stderr.write(line)
+            log.write(line)
+            log.flush()
+            if time.monotonic() > deadline:
+                timed_out = True
+                process.kill()
+                break
+        exit_code = process.wait()
+    elapsed = round(time.monotonic() - started, 2)
+
+    reports = sorted((workdir / output_directory).glob("stage4_candidate_replenishment_*.json"))
+    replenishment = json.loads(reports[-1].read_text(encoding="utf-8")) if reports else None
+    counts_after = table_counts(sandbox_database)
+    source_hash_after = sha256_file(source_database)
+    result = (replenishment or {}).get("result", {})
+    checks = [
+        _check("CLI finished before timeout", not timed_out, args.timeout_seconds),
+        _check("CLI exit code is 0 (opportunity) or 2 (valid non-complete)", exit_code in (0, 2), exit_code),
+        _check("replenishment report written", replenishment is not None, [str(item) for item in reports]),
+        _check("zero side effects", replenishment is not None and not any((
+            result.get("broker_orders_submitted"), result.get("portfolio_mutations"), result.get("automatic_executions"),
+        )), [result.get("broker_orders_submitted"), result.get("portfolio_mutations"), result.get("automatic_executions")]),
+        _check("no execution plan created", counts_after["execution_plans"] == counts_before["execution_plans"],
+               [counts_before["execution_plans"], counts_after["execution_plans"]]),
+        _check("production database untouched", source_hash_before == source_hash_after, source_hash_after[:16]),
+    ]
+    waves = (replenishment or {}).get("waves", [])
+    return {
+        "step": "live",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "mode": args.mode,
+        "root_run_id": run["run_id"],
+        "command": command,
+        "exit_code": exit_code,
+        "elapsed_seconds": elapsed,
+        "log": str(log_path),
+        "sandbox": sandbox,
+        "replenishment_report": str(reports[-1]) if reports else None,
+        "summary": {
+            "terminal_reason": result.get("terminal_reason"),
+            "opportunity_ids": result.get("opportunity_ids"),
+            "attempted_listing_keys": result.get("attempted_listing_keys"),
+            "frontier_ranking_mode": result.get("frontier_ranking_mode"),
+            "frontier_ranking_qualified_count": result.get("frontier_ranking_qualified_count"),
+            "frontier_ranking_network_calls": result.get("frontier_ranking_network_calls"),
+            "frontier_ranking_provider_circuit_open": result.get("frontier_ranking_provider_circuit_open"),
+            "quarantined_listing_keys": result.get("quarantined_listing_keys"),
+            "waves": [
+                {
+                    "wave_index": wave.get("wave_index"),
+                    "status": wave.get("status"),
+                    "terminal_reason": wave.get("terminal_reason"),
+                    "listing_keys": wave.get("listing_keys"),
+                    "opportunity_ids": wave.get("opportunity_ids"),
+                    "diagnostics": [
+                        item for item in wave.get("diagnostics", [])
+                        if not str(item).startswith("history_report=")
+                    ],
+                }
+                for wave in waves
+            ],
+        },
+        "table_counts_before": counts_before,
+        "table_counts_after": counts_after,
+        "checks": checks,
+        "verdict": _verdict(checks),
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    preflight = subparsers.add_parser("preflight")
+    preflight.add_argument("--run-id")
+    preflight.add_argument("--model", default="qwen3:8b")
+    # The runtime LocalProvider is bound to http://localhost:11434.
+    preflight.add_argument("--ollama-url", default="http://localhost:11434")
+    preflight.add_argument("--yahoo-probe", default="SAP.DE")
+    preflight.add_argument("--skip-yahoo", action="store_true")
+    preflight.add_argument("--out", type=Path)
+
+    replay = subparsers.add_parser("replay")
+    replay.add_argument("--run-id")
+    replay.add_argument("--workdir", type=Path, required=True)
+    replay.add_argument("--out", type=Path)
+
+    live = subparsers.add_parser("live")
+    live.add_argument("--run-id")
+    live.add_argument("--workdir", type=Path, required=True)
+    live.add_argument("--mode", choices=("LIVE", "PREFER_CACHE", "CACHE_ONLY"), default="LIVE")
+    live.add_argument("--model", default="qwen3:8b")
+    live.add_argument("--max-waves", type=int, default=1)
+    live.add_argument("--max-hypotheses", type=int, default=4)
+    live.add_argument("--timeout-seconds", type=float, default=3600.0)
+    live.add_argument("--log", type=Path)
+    live.add_argument("--out", type=Path)
+
+    args = parser.parse_args(argv)
+    handlers = {"preflight": run_preflight, "replay": run_replay, "live": run_live}
+    try:
+        result = handlers[args.command](args)
+    except HarnessError as exc:
+        result = {"step": args.command, "verdict": "FAIL", "error": exc.code, "message": str(exc), "checks": []}
+    _write(args.out, result)
+    return 0 if result["verdict"] == "PASS" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
