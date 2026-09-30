@@ -676,7 +676,22 @@ def inspect_research(database: Path, since: str) -> dict[str, Any]:
 
     technical_items = []
     bundle_has_volatility: dict[str, bool] = {}
+    bundle_summaries: dict[str, dict[str, Any]] = {}
     for bundle in bundles:
+        kinds: dict[str, int] = {}
+        texts: dict[str, list[str]] = {}
+        for item in bundle.get("items", []):
+            kind = str(item.get("kind"))
+            kinds[kind] = kinds.get(kind, 0) + 1
+            if kind in {"FUNDAMENTAL", "ANALYST"}:
+                texts.setdefault(kind, []).append(
+                    str(item.get("evidence", {}).get("text", ""))[:600]
+                )
+        bundle_summaries[str(bundle.get("bundle_id"))] = {
+            "evidence_kinds": dict(sorted(kinds.items())),
+            "warnings": [str(value) for value in bundle.get("warnings", [])][:10],
+            "fundamental_and_analyst_texts": texts,
+        }
         has_volatility = False
         for item in bundle.get("items", []):
             if item.get("kind") != "TECHNICAL":
@@ -739,6 +754,8 @@ def inspect_research(database: Path, since: str) -> dict[str, Any]:
             "forward_uncertainties": forward,
             "material_gaps": gaps,
             "research_contract": (record.get("metadata") or {}).get("research_contract"),
+            "evidence_kinds": bundle_summaries.get(str(bundle_id), {}).get("evidence_kinds"),
+            "bundle_warnings": bundle_summaries.get(str(bundle_id), {}).get("warnings"),
         })
 
     score_rows = [_score_row(record) for record in scores]
@@ -805,6 +822,7 @@ def inspect_research(database: Path, since: str) -> dict[str, Any]:
         "since": since,
         "database": str(database),
         "technical_evidence": technical_items,
+        "evidence_bundles": bundle_summaries,
         "research": research_rows,
         "scores": score_rows,
         "outcomes": outcome_rows,

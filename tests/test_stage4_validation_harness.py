@@ -316,3 +316,12 @@ def test_c2r1_inspection_reports_gaps_and_contract(tmp_path):
     assert result["c2r1_acceptance"] == "PASS"
     assert result["complete_research_count"] == 1
     assert result["research"][0]["material_gaps"] == []
+
+
+def test_inspection_summarizes_evidence_kinds_per_research(tmp_path):
+    database = tmp_path / "state.db"
+    _inspection_db(database, adapter_version="stage4-research-technical-v2",
+                   volatility_text=True, research_unknowns=[])
+    result = harness.inspect_research(database, "2026-09-30T12:00:00Z")
+    assert result["research"][0]["evidence_kinds"] == {"TECHNICAL": 1}
+    assert result["evidence_bundles"]["evidence-1"]["warnings"] == []

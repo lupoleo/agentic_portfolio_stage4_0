@@ -10,7 +10,7 @@
 | Baseline date | 2026-09-23 |
 | Last closed checkpoint | E2E-S4.0A.3 — Research Evidence Completion Bridge |
 | Active checkpoint | E2E-S4.0A — First Complete E2E Target — LIVE COMPLETION IN PROGRESS |
-| Regression baseline | 1687 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
+| Regression baseline | 1690 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -606,7 +606,7 @@ meaning of a policy decision.
 | Area | Checkpoint | Status at baseline |
 | --- | --- | --- |
 | Quantitative portfolio foundation | Stage 2.5 | CLOSED / FROZEN |
-| Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN — reopened by AI-8C.2-R1 (forward uncertainties), live acceptance pending |
+| Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN — AI-8C.2-R1 (forward uncertainties) ACCEPTED 2026-09-30 |
 | Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30; AI-8C.3-R2 (directional scoring) safety criteria ACCEPTED 2026-09-30, AI-8C.3-R2.1 (company-frame fundamental/expectations) safety met, consistency not met; SHORT materialization suspended pending AI-8C.3-R2.2 |
 | Portfolio Filter | PF-1A through PF-1H | CLOSED / FROZEN |
 | Exchange universe and provider policy | E2E-S2.1A through S2.1J | CLOSED |
@@ -1324,3 +1324,12 @@ evidence. Prompt `opportunity-research-v1.4-forward-uncertainties`, contract
 threshold rule is relaxed and software never promotes research to `COMPLETE`.
 Offline upper bound: research without material gaps rises from 9 to 26 of 151.
 Details: `docs/AI-8C.2-R1-FORWARD-UNCERTAINTIES.md`.
+
+AI-8C.2-R1 live acceptance (2026-09-30): all ten new research used the v2
+contract, forward uncertainties were used as intended, and no research listed
+volatility as unknown. None reached `COMPLETE`: every research lists at least
+one genuine as-of gap, chiefly peer valuation (no provider), latest-quarter
+margins (only TTM supplied) and consensus/guidance. `research_confidence` was
+0.0 in half of the research because the prompt never defines it, forcing the
+confidence-adjusted score to 50. The same run exposed and led to the fix of a
+wave-level failure on unavailable history snapshots.

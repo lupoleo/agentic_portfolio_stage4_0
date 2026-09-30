@@ -6,7 +6,7 @@
 | Reopened contract | AI-8C.2 — Opportunity Research (prompt, model, coverage validator) |
 | Also affected | AI-8C.3 scoring context and uncertainty factors (read-only consumer) |
 | Branch | `e2e-s4.0a-validation-harness` (separate commit) |
-| Status | IMPLEMENTED — LIVE ACCEPTANCE PENDING |
+| Status | ACCEPTED 2026-09-30 (contract criteria); no COMPLETE research yet — remaining gaps are genuine evidence gaps (see §7) |
 | Approved by | Operator, 2026-09-30 |
 
 ## 1. Reason
@@ -105,3 +105,46 @@ research. Regression: 1,687 tests and 162 subtests passed.
    `summary.md`, to judge whether the model separates them sensibly.
 4. Reported, not required: number of `COMPLETE` research and any LONG
    TradeOpportunity created.
+
+## 7. Acceptance evidence (2026-09-30)
+
+Validation run on the operator machine, commit `662031c` (tree `8b6cf7ec`),
+two LIVE waves (BIT:BAMI, NYSE:CDE, BIT:UCG, XETRA:EVK), 1,533 s.
+Regression 1,686 passed + 1 POSIX-only skip; Replay PASS; zero side effects.
+
+| Criterion | Result |
+| --- | --- |
+| Every new research records `ai-8c2-research-v2-forward-uncertainties` | PASS (10 of 10) |
+| No `COMPLETE` research contains a material gap | PASS (no `COMPLETE`) |
+| Volatility listed as unknown despite supplied evidence | 0 of 10 (previous run: 4 of 11) |
+| AI-8C.3-R1 / R2 checks | PASS |
+
+The model now uses `forward_uncertainties` as intended: all 47 items are
+future outcomes (deal and antitrust outcomes, sustainability of growth, market
+reaction). All ten research remained `PARTIAL` because every one lists at
+least one genuine as-of gap. The recurring gaps are:
+
+- peer valuation benchmarks (8 of 10 research): no evidence provider supplies
+  peer or sector valuation today;
+- recent quarterly margins (6 of 10): the fundamental provider supplies
+  trailing (TTM) margins, not the latest quarter;
+- consensus estimates and guidance (CDE, EVK, UCG).
+
+A minority of forward-looking items are still misfiled in `unknowns`
+("sustainability of revenue growth and margin expansion") and one forward item
+was reclassified as a gap by the guard ("sector-wide demand for gold/silver in
+2026"), both conservative.
+
+Findings recorded for follow-up:
+
+- `research_confidence` is 0.0 in 5 of 10 research despite MEDIUM evidence
+  quality. It is produced by the model without any definition in the prompt,
+  and a 0.0 value forces the confidence-adjusted score to exactly 50
+  (EVK.DE `NEW_LONG`: raw 61.25, adjusted 50.0).
+- The history tool records unavailable snapshots with `quality=None`; the
+  replenishment runtime failed the whole wave on it. Fixed in
+  `fix(e2e): route unavailable history snapshots per listing`.
+
+Conclusion: the research contract now separates the two kinds of uncertainty
+correctly. The next blocker is evidence coverage (peer valuation, latest
+quarter, consensus) and the undefined research confidence, not the validator.
