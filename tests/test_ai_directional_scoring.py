@@ -291,8 +291,8 @@ def test_direction_mismatch_is_a_replenishable_reason():
 # --- AI-8C.3-R2.1: company-frame fundamental and expectations -----------------
 
 
-def test_policy_is_v2():
-    assert DIRECTIONAL_SCORING_POLICY == "ai-8c3-directional-scoring-v2"
+def test_policy_is_v3():
+    assert DIRECTIONAL_SCORING_POLICY == "ai-8c3-directional-scoring-v3"
 
 
 def _scores_for(direction):

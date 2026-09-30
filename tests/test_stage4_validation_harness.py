@@ -233,7 +233,7 @@ def _score_payload(kind, direction, raw, source="HYPOTHESIS"):
             "hypothesis_kind": kind,
             "scoring_diagnostics": {"direction": {
                 "direction": direction, "direction_source": source,
-                "policy_version": "ai-8c3-directional-scoring-v2",
+                "policy_version": "ai-8c3-directional-scoring-v3",
             }},
         },
     }
@@ -271,7 +271,7 @@ def test_r2_inspection_rejects_contradictory_or_undirected_scores(tmp_path):
     ])
     result = harness.inspect_research(database, "2026-09-30T12:00:00Z")
     assert result["r2_acceptance"] == "FAIL"
-    assert [check["passed"] for check in result["r2_checks"]] == [False, True, False]
+    assert [check["passed"] for check in result["r2_checks"]] == [False, True, True, False]
 
 
 def test_r2_inspection_is_not_applicable_without_directional_scores(tmp_path):
@@ -347,3 +347,29 @@ def test_inspection_reports_fundamental_period_age(tmp_path):
     summary = result["evidence_bundles"]["evidence-2"]
     assert summary["fundamental_period_end"] == "2026-06-30T00:00:00Z"
     assert summary["fundamental_age_days"] == 92.8
+
+
+def test_r2_2_inspection_flags_divergent_shared_company_frames(tmp_path):
+    database = tmp_path / "state.db"
+    _inspection_db(database, adapter_version="stage4-research-technical-v2",
+                   volatility_text=True, research_unknowns=[])
+
+    def payload(kind, direction, frame):
+        value = _score_payload(kind, direction, 50.0)
+        value["metadata"]["scoring_diagnostics"]["direction"].update({
+            "company_frame_components": frame,
+            "company_assessment": {
+                "sources": {"fundamental": "SHARED_COMPANY_ASSESSMENT",
+                            "expectations": "SHARED_COMPANY_ASSESSMENT"},
+                "assessment": {"fingerprint": "abc"},
+            },
+        })
+        return value
+
+    _insert_scores(database, [
+        payload("NEW_LONG", "LONG", {"fundamental": 60.0, "expectations": 55.0}),
+        payload("NEW_SHORT", "SHORT", {"fundamental": 60.0, "expectations": 55.0}),
+    ])
+    result = harness.inspect_research(database, "2026-09-30T12:00:00Z")
+    assert result["r2_acceptance"] == "PASS"
+    assert result["direction_pairs"][0]["shared_assessment"] is True

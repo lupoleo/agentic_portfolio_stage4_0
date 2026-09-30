@@ -62,7 +62,9 @@ from app.cio.models import Direction
 # AI-8C.3-R2: scores measure support for the hypothesis direction.
 # R2.1 (v2): fundamental and expectations are scored in the company frame and
 # mirrored in software for SHORT, like the technical component.
-DIRECTIONAL_SCORING_POLICY = "ai-8c3-directional-scoring-v2"
+# R2.2 (v3): FUNDAMENTAL/EXPECTATIONS come from one shared, direction-free
+# company assessment per listing when available.
+DIRECTIONAL_SCORING_POLICY = "ai-8c3-directional-scoring-v3"
 COMPANY_FRAME_COMPONENTS = ("fundamental", "expectations")
 
 
@@ -84,8 +86,10 @@ class OpportunityScoringService:
         calculator: OpportunityScoreCalculator | None = None,
         prompt_version: str = "opportunity-scoring-v14-directional-company-frame",
         normalize_provider_transport: bool = False,
+        company_assessment_service: Any | None = None,
     ) -> None:
         self.provider = provider
+        self.company_assessment_service = company_assessment_service
         self.calculator = calculator or OpportunityScoreCalculator()
         self.prompt_version = prompt_version
         self.normalize_provider_transport = normalize_provider_transport
@@ -99,6 +103,7 @@ class OpportunityScoringService:
         sensitivity: DataSensitivity = DataSensitivity.PUBLIC,
         canonical_technical_input: CanonicalTechnicalInput | None = None,
         direction: Direction | None = None,
+        company_evidence: list[Any] | None = None,
     ) -> OpportunityScoringServiceResult:
         # Callers without a hypothesis direction keep the historical LONG
         # semantics; the source is recorded so it can never be mistaken for
@@ -194,6 +199,16 @@ class OpportunityScoringService:
             transport_output,
         )
 
+        transport_output, company_assessment_diagnostics = (
+            self._apply_shared_company_assessment(
+                research,
+                transport_output,
+                scorable_mask,
+                canonical_to_alias,
+                company_evidence,
+            )
+        )
+
         semantic_calibration_applied = not self.normalize_provider_transport
         if semantic_calibration_applied:
             transport_output = self._apply_nontechnical_semantic_calibration(
@@ -260,6 +275,7 @@ class OpportunityScoringService:
             components.technical.score,
         )
         diagnostics["direction"]["company_frame_components"] = company_frame_scores
+        diagnostics["direction"]["company_assessment"] = company_assessment_diagnostics
         diagnostics["direction"]["mirrored_components"] = (
             list(COMPANY_FRAME_COMPONENTS)
             if resolved_direction is Direction.SHORT else []
@@ -320,6 +336,54 @@ class OpportunityScoringService:
             ),
             "final_technical_score": final_technical_score,
         }
+
+    def _apply_shared_company_assessment(
+        self,
+        research: OpportunityResearch,
+        transport_output: Any,
+        scorable_mask: dict[str, bool],
+        canonical_to_alias: dict[str, str],
+        company_evidence: list[Any] | None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Replace company-frame components with the shared assessment.
+
+        Applied only to SCORABLE components whose shared score is grounded in
+        evidence cited by this research. Otherwise the scoring model's own
+        company-frame value is kept and the source says so.
+        """
+        if hasattr(transport_output, "model_dump"):
+            payload = transport_output.model_dump()
+        else:
+            payload = dict(transport_output)
+        sources = {name: "SCORING_MODEL" for name in COMPANY_FRAME_COMPONENTS}
+        diagnostics: dict[str, Any] = {"sources": sources, "assessment": None}
+        if self.company_assessment_service is None or company_evidence is None:
+            diagnostics["reason"] = "COMPANY_ASSESSMENT_DISABLED"
+            return payload, diagnostics
+
+        assessment = self.company_assessment_service.assess(research.ticker, company_evidence)
+        diagnostics["assessment"] = assessment.to_diagnostics()
+        model_values = {}
+        for name in COMPANY_FRAME_COMPONENTS:
+            current = payload.get(name)
+            if hasattr(current, "model_dump"):
+                current = current.model_dump()
+            model_values[name] = (current or {}).get("score") if isinstance(current, dict) else None
+            shared = assessment.component(name)
+            if not scorable_mask.get(name, False) or shared.score is None:
+                continue
+            aliases = [canonical_to_alias[x] for x in shared.evidence_ids if x in canonical_to_alias]
+            if not aliases:
+                sources[name] = "SCORING_MODEL_SHARED_NOT_GROUNDED"
+                continue
+            payload[name] = {
+                "score": shared.score,
+                "rationale": shared.rationale,
+                "supporting_evidence_ids": aliases,
+            }
+            sources[name] = "SHARED_COMPANY_ASSESSMENT"
+        diagnostics["scoring_model_values"] = model_values
+        return payload, diagnostics
 
     @staticmethod
     def _mirror_company_frame_components(

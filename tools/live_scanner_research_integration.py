@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
+from app.ai.company_assessment import CompanyAssessmentService
 from app.ai.canonical_technical import build_canonical_technical_input
 from app.ai.analyst_evidence_provider import YahooAnalystEvidenceProvider
 from app.ai.fundamental_evidence_provider import YahooFundamentalEvidenceProvider
@@ -60,7 +61,10 @@ def main() -> int:
             model_name=args.model, timeout_seconds=args.timeout_seconds,
         )
         research_service = ResearchService(provider)
-        scoring_service = OpportunityScoringService(provider)
+        scoring_service = OpportunityScoringService(
+            provider,
+            company_assessment_service=CompanyAssessmentService(provider),
+        )
         market = YahooMarketEvidenceProvider()
         news = YahooNewsEvidenceProvider()
         fundamental = YahooFundamentalEvidenceProvider()

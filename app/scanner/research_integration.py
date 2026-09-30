@@ -281,7 +281,26 @@ def hypothesis_direction(kind: ResearchHypothesisKind) -> Direction | None:
 # Directional scoring policies whose SHORT scores are trusted for
 # materialization. v1 (AI-8C.3-R2) let the model invert fundamental and
 # expectations itself, which live evidence showed to be unreliable.
-ACCEPTED_DIRECTIONAL_SCORING_POLICIES = frozenset({"ai-8c3-directional-scoring-v2"})
+ACCEPTED_DIRECTIONAL_SCORING_POLICIES = frozenset({"ai-8c3-directional-scoring-v3"})
+
+
+def shared_company_assessment_used(score: OpportunityScore) -> bool:
+    """AI-8C.3-R2.2: every scored company-frame component of this score came
+    from the shared, direction-free company assessment."""
+    diagnostics = (score.metadata or {}).get("scoring_diagnostics") or {}
+    direction = diagnostics.get("direction") if isinstance(diagnostics, dict) else None
+    company = (direction or {}).get("company_assessment") if isinstance(direction, dict) else None
+    sources = (company or {}).get("sources") if isinstance(company, dict) else None
+    if not isinstance(sources, dict):
+        return False
+    scored = {
+        "fundamental": score.fundamental_score is not None,
+        "expectations": score.expectations_score is not None,
+    }
+    return all(
+        sources.get(name) == "SHARED_COMPANY_ASSESSMENT"
+        for name, present in scored.items() if present
+    )
 
 
 # Temporary safety switch (operator decision 2026-09-30). The R2.1 live run
@@ -410,6 +429,14 @@ def opportunity_materialization_decision(
         return OpportunityMaterializationDecision(
             eligible=False, reason=HypothesisOutcomeReason.SHORT_MATERIALIZATION_SUSPENDED,
             message="SHORT materialization is suspended until AI-8C.3-R2.2", score=score,
+        )
+    if (
+        expected_direction is Direction.SHORT
+        and not shared_company_assessment_used(score)
+    ):
+        return OpportunityMaterializationDecision(
+            eligible=False, reason=HypothesisOutcomeReason.SCORE_DIRECTION_MISMATCH,
+            message="SHORT score lacks the shared company assessment", score=score,
         )
     if expected_direction is None or scored_direction(score) != expected_direction.value:
         return OpportunityMaterializationDecision(

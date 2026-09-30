@@ -910,6 +910,10 @@ def _score_row(record: dict[str, Any]) -> dict[str, Any]:
         "direction_source": direction.get("direction_source"),
         "directional_policy": direction.get("policy_version"),
         "company_frame_components": direction.get("company_frame_components"),
+        "company_assessment_sources": ((direction.get("company_assessment") or {}).get("sources")),
+        "company_assessment_fingerprint": (
+            ((direction.get("company_assessment") or {}).get("assessment") or {}).get("fingerprint")
+        ),
         "possible_direction_ignored": direction.get("possible_direction_ignored"),
         "scoring_status": record.get("scoring_status"),
         "raw_score": record.get("raw_score"),
@@ -948,6 +952,12 @@ def _r2_checks(score_rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
             "components_short": [short_row[f"{name}_score"] for name in ("thesis", "catalyst", "fundamental", "expectations")],
             "company_frame_long": long_row["company_frame_components"],
             "company_frame_short": short_row["company_frame_components"],
+            "shared_assessment": (
+                long_row["company_assessment_fingerprint"] is not None
+                and long_row["company_assessment_fingerprint"] == short_row["company_assessment_fingerprint"]
+            ),
+            "sources_long": long_row["company_assessment_sources"],
+            "sources_short": short_row["company_assessment_sources"],
         })
 
     def both_supported(pair: dict[str, Any]) -> bool:
@@ -973,6 +983,18 @@ def _r2_checks(score_rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], 
             "every directional score uses an accepted directional policy",
             not unaccepted,
             unaccepted,
+        ),
+        _check(
+            "company-frame values identical within every pair sharing a company assessment",
+            all(
+                pair["company_frame_long"] == pair["company_frame_short"]
+                for pair in pairs
+                if pair["shared_assessment"]
+                and pair["sources_long"] == pair["sources_short"]
+            ),
+            [pair["ticker"] for pair in pairs
+             if pair["shared_assessment"] and pair["sources_long"] == pair["sources_short"]
+             and pair["company_frame_long"] != pair["company_frame_short"]],
         ),
         _check(
             "no LONG/SHORT pair where both sides score raw >= 60",

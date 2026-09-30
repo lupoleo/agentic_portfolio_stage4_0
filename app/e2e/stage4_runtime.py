@@ -12,6 +12,7 @@ from pydantic import Field, field_validator, model_validator
 
 from app.ai.canonical_technical import build_canonical_technical_input
 from app.ai.analyst_evidence_provider import YahooAnalystEvidenceProvider
+from app.ai.company_assessment import CompanyAssessmentService
 from app.ai.fundamental_evidence_provider import YahooFundamentalEvidenceProvider
 from app.ai.local_provider import LocalProvider
 from app.ai.market_evidence_provider import YahooMarketEvidenceProvider
@@ -268,7 +269,10 @@ class CanonicalStage4Runtime:
                 timeout_seconds=self.configuration.timeout_seconds,
             )
             research_service = ResearchService(provider)
-            scoring_service = OpportunityScoringService(provider)
+            scoring_service = OpportunityScoringService(
+                provider,
+                company_assessment_service=CompanyAssessmentService(provider),
+            )
             market = YahooMarketEvidenceProvider()
             news = YahooNewsEvidenceProvider()
             fundamental = YahooFundamentalEvidenceProvider()

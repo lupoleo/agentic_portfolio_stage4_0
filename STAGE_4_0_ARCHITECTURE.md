@@ -10,7 +10,7 @@
 | Baseline date | 2026-09-23 |
 | Last closed checkpoint | E2E-S4.0A.3 — Research Evidence Completion Bridge |
 | Active checkpoint | E2E-S4.0A — First Complete E2E Target — LIVE COMPLETION IN PROGRESS |
-| Regression baseline | 1730 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
+| Regression baseline | 1742 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -606,8 +606,8 @@ meaning of a policy decision.
 | Area | Checkpoint | Status at baseline |
 | --- | --- | --- |
 | Quantitative portfolio foundation | Stage 2.5 | CLOSED / FROZEN |
-| Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN — AI-8C.2-R1 (forward uncertainties) ACCEPTED 2026-09-30; AI-8C.2-R2 (context gaps, confidence, bank fundamentals) ACCEPTED 2026-09-30; AI-8C.2-R3 (fundamental reporting cycle) implemented, live acceptance pending |
-| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30; AI-8C.3-R2 (directional scoring) safety criteria ACCEPTED 2026-09-30, AI-8C.3-R2.1 (company-frame fundamental/expectations) safety met, consistency not met; SHORT materialization suspended pending AI-8C.3-R2.2 |
+| Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN — AI-8C.2-R1 (forward uncertainties) ACCEPTED 2026-09-30; AI-8C.2-R2 (context gaps, confidence, bank fundamentals) ACCEPTED 2026-09-30; AI-8C.2-R3 (fundamental reporting cycle) ACCEPTED 2026-09-30 |
+| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30; AI-8C.3-R2 (directional scoring) safety criteria ACCEPTED 2026-09-30, AI-8C.3-R2.1 (company-frame fundamental/expectations) safety met, consistency not met; SHORT materialization suspended; AI-8C.3-R2.2 (shared company assessment) implemented, live acceptance pending |
 | Portfolio Filter | PF-1A through PF-1H | CLOSED / FROZEN |
 | Exchange universe and provider policy | E2E-S2.1A through S2.1J | CLOSED |
 | Instrument taxonomy | E2E-S2.2A | CLOSED |
@@ -1367,3 +1367,19 @@ stale beyond, with `FUNDAMENTAL_REPORTING_PERIOD_STALE`; other kinds keep the
 `evidence-quality-v2-semantic-coverage-reporting-cycle`. "Comparative" joins
 the research comparison markers. Details:
 `docs/AI-8C.2-R3-FUNDAMENTAL-REPORTING-CYCLE.md`.
+
+AI-8C.2-R3 live acceptance (2026-09-30): all eight research were HIGH evidence
+quality with fundamentals 92.8 days after the 30 June period end; WBD
+`NEW_LONG` reached a confidence-adjusted 58.97 but stayed `PARTIAL`.
+
+### AI-8C.3-R2.2 — Shared, Direction-Free Company Assessment
+
+FUNDAMENTAL and EXPECTATIONS are now scored once per listing by a
+direction-free company assessment built only from FUNDAMENTAL and ANALYST
+evidence, cached by content-addressed evidence IDs and shared by the LONG and
+SHORT hypotheses. The scoring service substitutes the shared values for
+SCORABLE, grounded components before calibration and the SHORT mirror, and
+records the source of each value. Policy `ai-8c3-directional-scoring-v3`;
+SHORT scores must use the shared assessment to materialize, and SHORT
+materialization remains suspended until the operator re-enables it after live
+acceptance. Details: `docs/AI-8C.3-R2.2-SHARED-COMPANY-ASSESSMENT.md`.

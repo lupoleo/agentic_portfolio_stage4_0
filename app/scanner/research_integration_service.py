@@ -412,6 +412,7 @@ class ScannerResearchIntegrationService:
             scoring_profile=OpportunityScoringProfile.STANDARD,
             canonical_technical_input=technical,
             direction=hypothesis_direction(hypothesis.kind),
+            company_evidence=list(aggregated.evidence),
         )
         score = build_opportunity_score(
             hypothesis, research, scoring_result,
