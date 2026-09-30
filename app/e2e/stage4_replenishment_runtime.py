@@ -344,10 +344,21 @@ class CanonicalStage4CandidateWaveExecutor:
         for result in results:
             if not isinstance(result, dict):
                 raise RuntimeError("history result is not an object")
-            quality = result.get("quality") or {}
-            identity = quality.get("listing_key") or {}
-            exchange = cls._value(identity.get("exchange", ""))
-            symbol = cls._value(identity.get("symbol", ""))
+            quality = result.get("quality")
+            if quality is None:
+                # The history tool records a listing whose snapshot could not
+                # be acquired (or whose listing reference is unusable) with
+                # quality=None. Identify it from its source decision and route
+                # it terminally as UNAVAILABLE instead of failing the wave.
+                source = result.get("source_decision") or {}
+                exchange = cls._value(source.get("exchange", ""))
+                symbol = cls._value(source.get("symbol", ""))
+                route_override = "UNAVAILABLE"
+            else:
+                identity = quality.get("listing_key") or {}
+                exchange = cls._value(identity.get("exchange", ""))
+                symbol = cls._value(identity.get("symbol", ""))
+                route_override = None
             listing_key = f"{exchange}:{symbol}"
             if listing_key not in expected:
                 raise RuntimeError(
@@ -357,8 +368,8 @@ class CanonicalStage4CandidateWaveExecutor:
                 raise RuntimeError(
                     f"duplicate history listing result: {listing_key}"
                 )
-            route = cls._value(quality.get("route", ""))
-            if route not in {"STANDARD", "REVIEW_REQUIRED", "BLOCKED"}:
+            route = route_override or cls._value(quality.get("route", ""))
+            if route not in {"STANDARD", "REVIEW_REQUIRED", "BLOCKED", "UNAVAILABLE"}:
                 raise RuntimeError(
                     f"unsupported history route for {listing_key}: {route}"
                 )
@@ -376,11 +387,14 @@ class CanonicalStage4CandidateWaveExecutor:
         )
         review = tuple(
             value for value in plan.selected_listings
-            if routes[value.listing_key] in {"REVIEW_REQUIRED", "BLOCKED"}
+            if routes[value.listing_key] in {"REVIEW_REQUIRED", "BLOCKED", "UNAVAILABLE"}
         )
         diagnostics = (
             f"history_standard_count={len(standard)}",
             f"history_terminal_review_count={len(review)}",
+            "history_unavailable_count=" + str(sum(
+                1 for route in routes.values() if route == "UNAVAILABLE"
+            )),
             "history_routes=" + ",".join(
                 f"{key}={routes[key]}" for key in sorted(routes)
             ),

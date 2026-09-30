@@ -216,3 +216,82 @@ def test_real_history_exit_two_with_completed_report_is_accepted(
     executor = CanonicalStage4CandidateWaveExecutor(config)
     path = executor._run_history(plan_value, NOW)
     assert path.is_file()
+
+
+def test_unavailable_history_snapshot_is_terminal_for_that_listing_only(tmp_path):
+    # Live regression 2026-09-30: a listing without a history snapshot is
+    # recorded with quality=None; it used to fail the whole wave with
+    # "unexpected history listing result: :" and quarantine both listings.
+    value = session()
+    plan_value = plan(value)
+    standard, unavailable = plan_value.selected_listings
+
+    def history_runner(current, now):
+        path = tmp_path / "history.json"
+        path.write_text(json.dumps({
+            "run_status": "COMPLETED",
+            "results": [
+                {"quality": {
+                    "listing_key": {"exchange": standard.exchange, "symbol": standard.symbol},
+                    "route": "STANDARD",
+                }},
+                {
+                    "source_decision": {"exchange": unavailable.exchange, "symbol": unavailable.symbol},
+                    "quality": None,
+                },
+            ],
+        }), encoding="utf-8")
+        return path
+
+    def child_runner(session_value, current, history_path, now):
+        child = SimpleNamespace(
+            run_id="child-1", scanner_run_id="scanner-1",
+            watch_universe_run_id="watch-1", research_run_id="research-1",
+            terminal_reason=None,
+        )
+        outcomes = tuple(
+            SimpleNamespace(kind=kind, status="EXCLUDED",
+                            reason="RESEARCH_NOT_COMPLETE", opportunity_id=None)
+            for kind in ("NEW_LONG", "NEW_SHORT")
+        )
+        return child, outcomes
+
+    executor = CanonicalStage4CandidateWaveExecutor(
+        configuration(tmp_path),
+        history_runner=history_runner,
+        child_runner=child_runner,
+        clock=lambda: NOW,
+    )
+    execution = executor.execute(value, plan_value, now=NOW)
+    assert execution.record.status.value == "COMPLETED"
+    assert execution.record.child_run_id == "child-1"
+    assert sorted(item.reason for item in execution.directional_outcomes) == [
+        "EVIDENCE_UNAVAILABLE", "EVIDENCE_UNAVAILABLE",
+        "RESEARCH_NOT_COMPLETE", "RESEARCH_NOT_COMPLETE",
+    ]
+    assert "history_unavailable_count=1" in execution.record.diagnostics
+    routes = {standard.listing_key: "STANDARD", unavailable.listing_key: "UNAVAILABLE"}
+    expected = "history_routes=" + ",".join(f"{key}={routes[key]}" for key in sorted(routes))
+    assert expected in execution.record.diagnostics
+
+
+def test_result_without_quality_or_source_still_fails_closed(tmp_path):
+    value = session()
+    plan_value = plan(value)
+
+    def history_runner(current, now):
+        path = tmp_path / "history.json"
+        path.write_text(json.dumps({
+            "run_status": "COMPLETED",
+            "results": [{"quality": None}, {"quality": None}],
+        }), encoding="utf-8")
+        return path
+
+    executor = CanonicalStage4CandidateWaveExecutor(
+        configuration(tmp_path),
+        history_runner=history_runner,
+        child_runner=lambda *args: (_ for _ in ()).throw(AssertionError("child called")),
+        clock=lambda: NOW,
+    )
+    execution = executor.execute(value, plan_value, now=NOW)
+    assert execution.record.terminal_reason == "PROCESSING_FAILED"
