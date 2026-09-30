@@ -5,7 +5,7 @@
 | Type | Revision of a reopened contract (AI-8C.2) including an operator policy decision |
 | Reopened contract | AI-8C.2 — Opportunity Research and evidence (validator, prompt, Yahoo fundamental evidence) |
 | Branch | `e2e-s4.0a-validation-harness` (separate commit) |
-| Status | IMPLEMENTED — LIVE ACCEPTANCE PENDING |
+| Status | ACCEPTED 2026-09-30 — first COMPLETE research and first SCORED LONG (see §7) |
 | Approved by | Operator, 2026-09-30 (including the context-gap policy) |
 
 ## 1. Reason
@@ -106,3 +106,33 @@ metadata, prompt wording, and bank versus non-bank fundamentals. Regression:
 3. Operator review of blocking gaps, context gaps and confidence repairs per
    research in `summary.md`.
 4. Reported, not required: `COMPLETE` research and any LONG opportunity.
+
+## 7. Acceptance evidence (2026-09-30)
+
+Validation run on the operator machine, commit `be4b31e` (tree `007134ea`),
+two LIVE waves (NASDAQ:WBD, XETRA:BMW, BIT:BAMI, BIT:UCG), 1,164 s.
+Regression 1,722 passed + 1 POSIX-only skip; Replay PASS; zero side effects;
+no history failure or quarantine.
+
+| Criterion | Result |
+| --- | --- |
+| Every research records `ai-8c2-research-v3-context-gaps` | PASS (8 of 8) |
+| No `COMPLETE` research contains a material gap | PASS |
+| No MEDIUM/HIGH research keeps confidence below 0.2 | PASS: confidence 0.5–0.7 in all 8; no repair needed |
+| AI-8C.3-R1 / R2 checks | PASS |
+
+Outcome: the first two live `COMPLETE` research of the system.
+
+- WBD `NEW_LONG`: `COMPLETE`, all five components scored, raw 61.75,
+  confidence-adjusted 55.14, excluded as `SCORE_BELOW_THRESHOLD` (60). Score
+  confidence 0.4375 = research confidence 0.70 × MEDIUM quality factor 0.75 ×
+  coverage 0.833 × completeness 1.0.
+- UCG.MI `NEW_SHORT`: `COMPLETE`, confidence-adjusted 50.56, excluded as
+  `SHORT_MATERIALIZATION_SUSPENDED`.
+
+Context gaps worked as designed (peer valuation no longer blocked WBD or
+UCG). One comparison phrased as "Comparative sector P/E ratios not quantified"
+still blocked UCG `NEW_LONG`; "comparative" is added to the comparison markers
+in AI-8C.2-R3. Evidence quality was MEDIUM in all eight research; the cause,
+a uniform 90-day staleness rule applied to fundamentals dated by their last
+reported quarter, is addressed by AI-8C.2-R3.
