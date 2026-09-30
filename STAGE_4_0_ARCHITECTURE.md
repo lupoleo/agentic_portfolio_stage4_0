@@ -10,7 +10,7 @@
 | Baseline date | 2026-09-23 |
 | Last closed checkpoint | E2E-S4.0A.3 — Research Evidence Completion Bridge |
 | Active checkpoint | E2E-S4.0A — First Complete E2E Target — LIVE COMPLETION IN PROGRESS |
-| Regression baseline | 1653 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
+| Regression baseline | 1654 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -607,7 +607,7 @@ meaning of a policy decision.
 | --- | --- | --- |
 | Quantitative portfolio foundation | Stage 2.5 | CLOSED / FROZEN |
 | Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN |
-| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30; AI-8C.3-R2 (directional scoring) implemented, live acceptance pending |
+| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30; AI-8C.3-R2 (directional scoring) safety criteria ACCEPTED 2026-09-30, semantic follow-up AI-8C.3-R2.1 proposed |
 | Portfolio Filter | PF-1A through PF-1H | CLOSED / FROZEN |
 | Exchange universe and provider policy | E2E-S2.1A through S2.1J | CLOSED |
 | Instrument taxonomy | E2E-S2.2A | CLOSED |
@@ -1278,3 +1278,13 @@ historical LONG/SHORT pairs removes every pair in which both directions scored
 raw ≥ 60 (14 → 0). The semantic components depend on the model honouring the
 direction and are verified in live acceptance through the validation harness.
 Details: `docs/AI-8C.3-R2-DIRECTIONAL-SCORING.md`.
+
+Live acceptance 2026-09-30 (four LONG/SHORT pairs): every score recorded its
+hypothesis direction, no pair scored raw ≥ 60 on both sides, and side effects
+stayed at zero. The technical component and the thesis followed the direction;
+fundamentals did not (company-frame scores on both sides, including a 72.5
+SHORT fundamental for a company with 37.9% revenue growth). The same run
+produced the first live `COMPLETE` research and first `SCORED` score
+(BAMI.MI `NEW_SHORT`, confidence-adjusted 56.6, below the 60 threshold).
+Proposed next: AI-8C.3-R2.1, company-frame scoring with software mirroring for
+fundamental and expectations, before AI-8C.2-R1.

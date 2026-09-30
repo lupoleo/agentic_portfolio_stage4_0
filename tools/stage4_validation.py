@@ -714,7 +714,17 @@ def inspect_research(database: Path, since: str) -> dict[str, Any]:
             "requires_additional_research": record.get("requires_additional_research"),
             "evidence_bundle_id": bundle_id,
             "bundle_states_volatility": bundle_has_volatility.get(str(bundle_id)),
-            "volatility_listed_unknown": any("volatil" in item.lower() for item in unknowns),
+            # R1 is about the metric being supplied. An unknown that quotes the
+            # supplied value (for example "volatility persistence beyond the
+            # current 22.37% level") is a forward uncertainty, not a gap.
+            "volatility_listed_unknown": any(
+                "volatil" in item.lower() and not re.search(r"\d", item)
+                for item in unknowns
+            ),
+            "volatility_forward_mentions": [
+                item for item in unknowns
+                if "volatil" in item.lower() and re.search(r"\d", item)
+            ],
             "material_unknowns": material,
             "other_unknowns": [item for item in unknowns if item not in material],
         })

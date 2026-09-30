@@ -276,3 +276,18 @@ def test_r2_inspection_is_not_applicable_without_directional_scores(tmp_path):
     _inspection_db(database, adapter_version="stage4-research-technical-v2",
                    volatility_text=True, research_unknowns=[])
     assert harness.inspect_research(database, "2026-09-30T12:00:00Z")["r2_acceptance"] == "NOT_APPLICABLE"
+
+
+def test_r1_inspection_treats_quoted_volatility_as_forward_uncertainty(tmp_path):
+    database = tmp_path / "state.db"
+    _inspection_db(
+        database,
+        adapter_version="stage4-research-technical-v2",
+        volatility_text=True,
+        research_unknowns=["Volatility persistence beyond current 22.37% level"],
+    )
+    result = harness.inspect_research(database, "2026-09-30T12:00:00Z")
+    assert result["r1_acceptance"] == "PASS"
+    row = result["research"][0]
+    assert row["volatility_listed_unknown"] is False
+    assert row["volatility_forward_mentions"] == ["Volatility persistence beyond current 22.37% level"]

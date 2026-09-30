@@ -6,7 +6,7 @@
 | Reopened contract | AI-8C.3 — Opportunity Scoring |
 | Also affected | S2.F scanner research integration (materialization gate, outcome reason) |
 | Branch | `e2e-s4.0a-validation-harness` (separate commit) |
-| Status | IMPLEMENTED — LIVE ACCEPTANCE PENDING |
+| Status | SAFETY CRITERIA ACCEPTED 2026-09-30 — semantic direction partially honoured (see §7) |
 | Approved by | Operator, 2026-09-30 |
 
 ## 1. Reason
@@ -119,3 +119,50 @@ Regression: 1,653 tests and 162 subtests passed.
    - zero broker orders, portfolio mutations and automatic executions.
 4. Operator review of the per-component pair table in `summary.md`, to judge
    whether the model honours direction for the semantic components.
+
+## 7. Acceptance evidence (2026-09-30)
+
+Validation run on the operator machine, commit `761cf82` (tree `5ea3d1d4`),
+two LIVE waves (BIT:BAMI, BIT:UCG, NASDAQ:MIRM, XETRA:BAS), 1,258 s:
+
+| Criterion | Result |
+| --- | --- |
+| Offline regression | PASS: 1,652 passed, 1 skipped (POSIX-only), 162 subtests |
+| Replay | PASS |
+| Directional scores record their hypothesis direction | PASS: 8 of 8, source `HYPOTHESIS` |
+| No LONG/SHORT pair with both raw scores ≥ 60 | PASS: 0 of 4 |
+| Side effects | 0 broker orders, 0 portfolio mutations, 0 automatic executions |
+
+Per-pair scores (thesis / catalyst / fundamental / technical / expectations):
+
+| Listing | LONG raw | SHORT raw | LONG components | SHORT components |
+| --- | ---: | ---: | --- | --- |
+| BAMI.MI | 43.6 | 62.4 | 45 / 47.5 / 35 / 40 / 50 | 80 / 47.5 / 62.5 / 70 / 50 |
+| BAS.DE | 52.9 | 71.3 | 65 / 57.5 / 62.5 / 15 / 50 | 70 / 65 / 60 / 85 / 85 |
+| MIRM | 46.8 | 66.6 | 50 / 55 / 50 / 20 / 50 | 70 / 57.5 / 72.5 / 85 / 50 |
+| UCG.MI | 55.1 | 53.3 | 55 / 57.5 / 60 / 50 / 50 | 55 / 50 / 60 / 50 / 50 |
+
+Assessment:
+
+- Technical: mirrored as designed on all four pairs; no
+  `possible_direction_ignored` flag.
+- Thesis: follows the direction (SHORT higher where technicals are bearish).
+- Fundamental: not reliably directional. The model scored fundamentals in the
+  company frame for both hypotheses (UCG 60/60, BAS 62.5/60) and gave MIRM,
+  with 37.9% year-on-year revenue growth, 72.5 as support for a SHORT.
+- Expectations and catalyst: inconsistent, mostly unchanged.
+
+First live `COMPLETE` research and first `SCORED` score of the system:
+BAMI.MI `NEW_SHORT` (research confidence 0.85, raw 62.4, confidence-adjusted
+56.6), excluded as `SCORE_BELOW_THRESHOLD`.
+
+Conclusion: R2 removes the contradictory-pair defect and is safe to publish.
+The semantic components with a bipolar company-level scale (fundamental,
+expectations) should be scored in the company frame and mirrored in software
+for SHORT, as the technical component already is. This is proposed as
+AI-8C.3-R2.1 and must precede any change that unblocks research completeness.
+
+Harness note: the R1 check first flagged BAMI.MI `NEW_LONG` for the unknown
+"Volatility persistence beyond current 22.37% level". It quotes the supplied
+value, so it is a forward uncertainty, not a missing metric. The inspection now
+counts only volatility unknowns without a quoted value; R1 passes on this run.
