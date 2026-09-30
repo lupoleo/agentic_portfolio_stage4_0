@@ -10,13 +10,18 @@ Subcommands::
     python -m tools.stage4_validation preflight --out preflight.json
     python -m tools.stage4_validation replay --workdir DIR --out replay.json
     python -m tools.stage4_validation live --workdir DIR --out live.json
+    python -m tools.stage4_validation inspect --database DB --since ISO_TS
 
 ``replay`` resumes an existing root S4.0A run in ``CACHE_ONLY`` mode using the
 verbatim persisted configuration and request, with outbound sockets blocked.
 It proves run identity, zero network, zero LLM inference and zero side effects.
 
 ``live`` executes the real bounded replenishment CLI against the sandbox copy
-with a small wave budget. It never touches the production database.
+with a small wave budget. It never touches the production database, and it
+attaches an inspection of the evidence, research, scores and outcomes persisted
+by the session, including the AI-8C.3-R1 acceptance checks.
+
+``inspect`` produces the same inspection for any database and timestamp.
 """
 from __future__ import annotations
 
@@ -509,6 +514,7 @@ def run_live(args: argparse.Namespace) -> dict[str, Any]:
     counts_before = table_counts(sandbox_database)
 
     stamp = datetime.now(timezone.utc)
+    since = stamp.isoformat().replace("+00:00", "Z")
     output_directory = Path("validation_output") / stamp.strftime("%Y%m%dT%H%M%SZ")
     command = [
         sys.executable, "-m", "tools.live_stage4_candidate_replenishment",
@@ -570,6 +576,10 @@ def run_live(args: argparse.Namespace) -> dict[str, Any]:
                [counts_before["execution_plans"], counts_after["execution_plans"]]),
         _check("production database untouched", source_hash_before == source_hash_after, source_hash_after[:16]),
     ]
+    try:
+        inspection = inspect_research(sandbox_database, since)
+    except Exception as exc:  # noqa: BLE001 - diagnostic surface
+        inspection = {"error": repr(exc), "r1_acceptance": "FAIL", "r1_checks": []}
     waves = (replenishment or {}).get("waves", [])
     return {
         "step": "live",
@@ -606,11 +616,200 @@ def run_live(args: argparse.Namespace) -> dict[str, Any]:
                 for wave in waves
             ],
         },
+        "research_inspection": inspection,
+        "r1_acceptance": inspection.get("r1_acceptance"),
         "table_counts_before": counts_before,
         "table_counts_after": counts_after,
         "checks": checks,
         "verdict": _verdict(checks),
     }
+
+
+
+# ---------------------------------------------------------------------------
+# Research inspection (AI-8C.3-R1 acceptance evidence)
+# ---------------------------------------------------------------------------
+
+
+_VOLATILITY_STATEMENT = "annualized volatility:"
+_R1_ADAPTER_VERSION = "stage4-research-technical-v2"
+
+
+def _json_rows(connection: sqlite3.Connection, sql: str, parameters: tuple) -> list[dict[str, Any]]:
+    try:
+        return [json.loads(row[0]) for row in connection.execute(sql, parameters)]
+    except sqlite3.OperationalError:
+        return []
+
+
+def _material_unknown_terms() -> tuple[str, ...]:
+    from app.ai.research_validator import ResearchCoverageValidator
+
+    return tuple(ResearchCoverageValidator._MATERIAL_UNKNOWN_TERMS)
+
+
+def inspect_research(database: Path, since: str) -> dict[str, Any]:
+    """Summarize evidence, research, scores and outcomes persisted since ``since``."""
+    terms = _material_unknown_terms()
+    uri = database.resolve().as_uri() + "?mode=ro"
+    with sqlite3.connect(uri, uri=True) as connection:
+        bundles = _json_rows(
+            connection,
+            "select payload_json from scanner_evidence_bundles where created_at >= ? order by created_at",
+            (since,),
+        )
+        research = _json_rows(
+            connection,
+            "select payload_json from opportunity_research where created_at >= ? order by created_at",
+            (since,),
+        )
+        scores = _json_rows(
+            connection,
+            "select payload_json from opportunity_scores where created_at >= ? order by created_at",
+            (since,),
+        )
+        outcomes = _json_rows(
+            connection,
+            "select payload_json from scanner_research_outcomes where updated_at >= ? order by updated_at",
+            (since,),
+        )
+
+    technical_items = []
+    bundle_has_volatility: dict[str, bool] = {}
+    for bundle in bundles:
+        has_volatility = False
+        for item in bundle.get("items", []):
+            if item.get("kind") != "TECHNICAL":
+                continue
+            text = str(item.get("evidence", {}).get("text", ""))
+            stated = _VOLATILITY_STATEMENT in text.lower()
+            has_volatility = has_volatility or stated
+            technical_items.append({
+                "bundle_id": bundle.get("bundle_id"),
+                "ticker": bundle.get("ticker"),
+                "adapter_version": item.get("metadata", {}).get("adapter_version"),
+                "canonical_technical_contract": item.get("source", {}).get("metadata", {}).get(
+                    "canonical_technical_contract"
+                ),
+                "volatility_stated": stated,
+            })
+        bundle_has_volatility[str(bundle.get("bundle_id"))] = has_volatility
+
+    research_bundle = {
+        str(outcome.get("research_id")): str(outcome.get("evidence_bundle_id"))
+        for outcome in outcomes
+        if outcome.get("research_id")
+    }
+    research_rows = []
+    for record in research:
+        unknowns = [str(item) for item in record.get("unknowns", [])]
+        material = [item for item in unknowns if any(term in item.lower() for term in terms)]
+        bundle_id = research_bundle.get(str(record.get("research_id")))
+        research_rows.append({
+            "research_id": record.get("research_id"),
+            "ticker": record.get("ticker"),
+            "research_status": record.get("research_status"),
+            "evidence_quality": record.get("evidence_quality"),
+            "research_confidence": record.get("research_confidence"),
+            "requires_additional_research": record.get("requires_additional_research"),
+            "evidence_bundle_id": bundle_id,
+            "bundle_states_volatility": bundle_has_volatility.get(str(bundle_id)),
+            "volatility_listed_unknown": any("volatil" in item.lower() for item in unknowns),
+            "material_unknowns": material,
+            "other_unknowns": [item for item in unknowns if item not in material],
+        })
+
+    score_rows = [
+        {
+            "opportunity_score_id": record.get("opportunity_score_id"),
+            "ticker": record.get("ticker"),
+            "scoring_status": record.get("scoring_status"),
+            "confidence_adjusted_score": record.get("confidence_adjusted_score"),
+            "technical_score": record.get("technical_score"),
+            "volatility_listed_uncertain": any(
+                "volatil" in str(item).lower() for item in record.get("uncertainty_factors", [])
+            ),
+        }
+        for record in scores
+    ]
+    outcome_rows = [
+        {
+            "hypothesis_id": outcome.get("hypothesis_id"),
+            "kind": outcome.get("kind"),
+            "subject": outcome.get("subject_value"),
+            "status": outcome.get("status"),
+            "reason": outcome.get("reason"),
+            "research_id": outcome.get("research_id"),
+            "opportunity_id": outcome.get("opportunity_id"),
+        }
+        for outcome in outcomes
+    ]
+
+    r1_checks = [
+        _check(
+            "new TECHNICAL evidence persisted",
+            bool(technical_items),
+            len(technical_items),
+        ),
+        _check(
+            f"every new TECHNICAL evidence uses {_R1_ADAPTER_VERSION}",
+            bool(technical_items)
+            and all(item["adapter_version"] == _R1_ADAPTER_VERSION for item in technical_items),
+            sorted({str(item["adapter_version"]) for item in technical_items}),
+        ),
+        _check(
+            "volatility stated in new TECHNICAL evidence",
+            any(item["volatility_stated"] for item in technical_items),
+            [item["ticker"] for item in technical_items if item["volatility_stated"]],
+        ),
+        _check(
+            "no research lists volatility unknown when its evidence states it",
+            not any(
+                row["bundle_states_volatility"] and row["volatility_listed_unknown"]
+                for row in research_rows
+            ),
+            [
+                row["research_id"]
+                for row in research_rows
+                if row["bundle_states_volatility"] and row["volatility_listed_unknown"]
+            ],
+        ),
+    ]
+    return {
+        "since": since,
+        "database": str(database),
+        "technical_evidence": technical_items,
+        "research": research_rows,
+        "scores": score_rows,
+        "outcomes": outcome_rows,
+        "research_status_counts": dict(
+            sorted(_count(row["research_status"] for row in research_rows).items())
+        ),
+        "outcome_reason_counts": dict(
+            sorted(_count(f"{row['status']}/{row['reason']}" for row in outcome_rows).items())
+        ),
+        "r1_checks": r1_checks,
+        "r1_acceptance": _verdict(r1_checks),
+    }
+
+
+def _count(values: Any) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        counts[str(value)] = counts.get(str(value), 0) + 1
+    return counts
+
+
+def run_inspect(args: argparse.Namespace) -> dict[str, Any]:
+    database = Path(args.database)
+    if not database.is_file():
+        raise HarnessError("DATABASE_NOT_FOUND", str(database))
+    result = inspect_research(database, args.since)
+    result["step"] = "inspect"
+    result["generated_at"] = datetime.now(timezone.utc).isoformat()
+    result["checks"] = result["r1_checks"]
+    result["verdict"] = result["r1_acceptance"]
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -642,8 +841,18 @@ def main(argv: list[str] | None = None) -> int:
     live.add_argument("--log", type=Path)
     live.add_argument("--out", type=Path)
 
+    inspect = subparsers.add_parser("inspect")
+    inspect.add_argument("--database", type=Path, required=True)
+    inspect.add_argument("--since", required=True, help="ISO timestamp, e.g. 2026-09-30T12:25:55Z")
+    inspect.add_argument("--out", type=Path)
+
     args = parser.parse_args(argv)
-    handlers = {"preflight": run_preflight, "replay": run_replay, "live": run_live}
+    handlers = {
+        "preflight": run_preflight,
+        "replay": run_replay,
+        "live": run_live,
+        "inspect": run_inspect,
+    }
     try:
         result = handlers[args.command](args)
     except HarnessError as exc:

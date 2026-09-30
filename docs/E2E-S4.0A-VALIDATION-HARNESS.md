@@ -71,6 +71,22 @@ Exit code `0` means every executed level passed. For `Live`, a
 validates safety and integrity, not whether the market offered an
 opportunity.
 
+## Research inspection
+
+`Live` attaches an inspection of everything the session persisted in the
+sandbox: TECHNICAL evidence (adapter and contract version, whether volatility
+is stated), research (status, quality, confidence, material and other
+unknowns), scores and outcome reasons. It also evaluates the AI-8C.3-R1
+acceptance checks as a separate `r1_acceptance` verdict, which does not change
+the safety verdict of the level.
+
+The same inspection can be run on any database, for example an earlier live
+sandbox:
+
+```powershell
+python -m tools.stage4_validation inspect --database <sandbox>\data\state\portfolio_cio.db --since 2026-09-30T12:25:55Z
+```
+
 ## Regression baseline
 
 `pytest.ini` restricts collection to `tests/`. The previously reported

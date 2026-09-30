@@ -137,3 +137,87 @@ def test_main_reports_missing_root_report_as_failure(tmp_path, monkeypatch, caps
     assert code == 1
     assert json.loads(out.read_text(encoding="utf-8"))["error"] == "ROOT_REPORT_NOT_FOUND"
     capsys.readouterr()
+
+
+def _inspection_db(path, *, adapter_version, volatility_text, research_unknowns):
+    with sqlite3.connect(path) as connection:
+        for table, column in (
+            ("scanner_evidence_bundles", "created_at"),
+            ("opportunity_research", "created_at"),
+            ("opportunity_scores", "created_at"),
+            ("scanner_research_outcomes", "updated_at"),
+        ):
+            connection.execute(f"create table {table} ({column} text, payload_json text)")
+        technical_text = "RSI14: 50.0000." + (
+            " 20-session annualized volatility: 23.4000%." if volatility_text else ""
+        )
+        bundle = {
+            "bundle_id": "evidence-1",
+            "ticker": "UCG.MI",
+            "items": [{
+                "kind": "TECHNICAL",
+                "evidence": {"text": technical_text},
+                "metadata": {"adapter_version": adapter_version},
+                "source": {"metadata": {"canonical_technical_contract": "ai-8c3-canonical-technical-v2"}},
+            }],
+        }
+        research = {
+            "research_id": "RES-1",
+            "ticker": "UCG.MI",
+            "research_status": "PARTIAL",
+            "evidence_quality": "MEDIUM",
+            "unknowns": research_unknowns,
+        }
+        outcome = {
+            "hypothesis_id": "hyp-1",
+            "status": "EXCLUDED",
+            "reason": "RESEARCH_NOT_COMPLETE",
+            "research_id": "RES-1",
+            "evidence_bundle_id": "evidence-1",
+        }
+        stamp = "2026-09-30T12:30:00Z"
+        connection.execute("insert into scanner_evidence_bundles values (?, ?)", (stamp, json.dumps(bundle)))
+        connection.execute("insert into opportunity_research values (?, ?)", (stamp, json.dumps(research)))
+        connection.execute("insert into scanner_research_outcomes values (?, ?)", (stamp, json.dumps(outcome)))
+
+
+def test_inspection_accepts_r1_when_volatility_is_stated_and_not_unknown(tmp_path):
+    database = tmp_path / "state.db"
+    _inspection_db(
+        database,
+        adapter_version="stage4-research-technical-v2",
+        volatility_text=True,
+        research_unknowns=["Sector peer comparison is unavailable.", "Management tone."],
+    )
+    result = harness.inspect_research(database, "2026-09-30T12:00:00Z")
+    assert result["r1_acceptance"] == "PASS"
+    row = result["research"][0]
+    assert row["bundle_states_volatility"] is True
+    assert row["volatility_listed_unknown"] is False
+    assert row["material_unknowns"] == ["Sector peer comparison is unavailable."]
+    assert result["outcome_reason_counts"] == {"EXCLUDED/RESEARCH_NOT_COMPLETE": 1}
+
+
+def test_inspection_rejects_r1_when_volatility_unknown_despite_evidence(tmp_path):
+    database = tmp_path / "state.db"
+    _inspection_db(
+        database,
+        adapter_version="stage4-research-technical-v2",
+        volatility_text=True,
+        research_unknowns=["Technical volatility metrics are unknown."],
+    )
+    result = harness.inspect_research(database, "2026-09-30T12:00:00Z")
+    assert result["r1_acceptance"] == "FAIL"
+
+
+def test_inspection_rejects_r1_for_v1_evidence_and_ignores_older_rows(tmp_path):
+    database = tmp_path / "state.db"
+    _inspection_db(
+        database,
+        adapter_version="stage4-research-technical-v1",
+        volatility_text=False,
+        research_unknowns=[],
+    )
+    assert harness.inspect_research(database, "2026-09-30T12:00:00Z")["r1_acceptance"] == "FAIL"
+    later = harness.inspect_research(database, "2026-09-30T13:00:00Z")
+    assert later["technical_evidence"] == [] and later["research"] == []

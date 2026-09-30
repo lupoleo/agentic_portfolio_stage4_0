@@ -218,7 +218,7 @@ finally {
             'live' {
                 if ($result.summary) {
                     $opportunities = @($result.summary.opportunity_ids) -join ','
-                    $detail = "exit=$($result.exit_code) terminal=$($result.summary.terminal_reason) opportunities=[$opportunities] frontier=$($result.summary.frontier_ranking_mode) qualified=$($result.summary.frontier_ranking_qualified_count) elapsed=$($result.elapsed_seconds)s"
+                    $detail = "exit=$($result.exit_code) terminal=$($result.summary.terminal_reason) opportunities=[$opportunities] frontier=$($result.summary.frontier_ranking_mode) qualified=$($result.summary.frontier_ranking_qualified_count) r1_acceptance=$($result.r1_acceptance) elapsed=$($result.elapsed_seconds)s"
                 }
                 elseif ($result.reason) { $detail = "$($result.reason)" }
                 elseif ($result.error) { $detail = "$($result.error)" }
@@ -236,6 +236,24 @@ finally {
         $md.Add('## Live waves')
         foreach ($wave in @($steps['live'].summary.waves)) {
             $md.Add("- wave $($wave.wave_index) $($wave.status)/$($wave.terminal_reason) listings=$(@($wave.listing_keys) -join ',') opportunities=$(@($wave.opportunity_ids) -join ',') diagnostics=$(@($wave.diagnostics) -join '; ')")
+        }
+    }
+    if ($steps.Contains('live') -and $steps['live'] -and $steps['live'].research_inspection) {
+        $inspection = $steps['live'].research_inspection
+        $md.Add('')
+        $md.Add("## Research inspection (AI-8C.3-R1 acceptance: $($inspection.r1_acceptance))")
+        foreach ($check in @($inspection.r1_checks)) {
+            $md.Add("- [$(if ($check.passed) { 'x' } else { ' ' })] $($check.name): $(($check.detail | ConvertTo-Json -Compress -Depth 4))")
+        }
+        $md.Add("- research status: $(($inspection.research_status_counts | ConvertTo-Json -Compress))")
+        $md.Add("- outcomes: $(($inspection.outcome_reason_counts | ConvertTo-Json -Compress))")
+        foreach ($row in @($inspection.research)) {
+            $md.Add("- research $($row.ticker) $($row.research_status) quality=$($row.evidence_quality) confidence=$($row.research_confidence) volatility_in_evidence=$($row.bundle_states_volatility) volatility_unknown=$($row.volatility_listed_unknown)")
+            foreach ($unknown in @($row.material_unknowns)) { if ($unknown) { $md.Add("    - MATERIAL: $unknown") } }
+            foreach ($unknown in @($row.other_unknowns)) { if ($unknown) { $md.Add("    - other: $unknown") } }
+        }
+        foreach ($row in @($inspection.scores)) {
+            $md.Add("- score $($row.ticker) $($row.scoring_status) adjusted=$($row.confidence_adjusted_score) technical=$($row.technical_score) volatility_uncertain=$($row.volatility_listed_uncertain)")
         }
     }
     $md.Add('')
