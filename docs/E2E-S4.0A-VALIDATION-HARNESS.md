@@ -87,6 +87,13 @@ sandbox:
 python -m tools.stage4_validation inspect --database <sandbox>\data\state\portfolio_cio.db --since 2026-09-30T12:25:55Z
 ```
 
+## Shadow ledger export
+
+After the `Live` level the harness exports every scored directional
+hypothesis of the sandbox into `data/state/shadow_ledger.db`
+(`docs/E2E-S4.0B-SHADOW-LEDGER.md`), labelled `validation:<stamp>`. The
+export is idempotent and never fails the level; `-NoShadowLedger` disables it.
+
 ## Regression baseline
 
 `pytest.ini` restricts collection to `tests/`. The previously reported

@@ -10,7 +10,7 @@
 | Baseline date | 2026-09-23 |
 | Last closed checkpoint | E2E-S4.0A.3 — Research Evidence Completion Bridge |
 | Active checkpoint | E2E-S4.0A — First Complete E2E Target — LIVE COMPLETION IN PROGRESS |
-| Regression baseline | 1758 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
+| Regression baseline | 1767 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -1401,3 +1401,19 @@ inspection diagnostics to model-output defects (a null company-frame component
 after repair, a confidence on a percent scale, a missing technical rationale
 with invalid citations), now tolerated deterministically without changing any
 score. Details in `docs/AI-8C.3-R2.2-SHARED-COMPANY-ASSESSMENT.md` §8.
+
+The fixes were confirmed live on 2026-10-01: zero processing failures, no
+wave retries, four of eight research `COMPLETE`, all below 60 (50.7–54.7).
+
+## E2E-S4.0B — Shadow Ledger
+
+Approved by the operator on 2026-10-01. Every directional hypothesis with a
+confidence-adjusted score is recorded in a separate, git-ignored ledger
+(`data/state/shadow_ledger.db`), automatically after each harness `Live` level
+or with `python -m tools.shadow_ledger export`. `measure` records the
+directional and index-relative return after 5, 10 and 20 sessions (reference:
+last close before the evaluation day); `report` groups results by adjusted
+score. The ledger reads source databases read-only and has no effect on any
+portfolio, proposal, opportunity or execution contract. Its purpose is to
+provide outcome evidence before any change to the 60 / 0.40 thresholds.
+Details: `docs/E2E-S4.0B-SHADOW-LEDGER.md`.

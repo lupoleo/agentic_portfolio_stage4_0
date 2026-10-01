@@ -140,3 +140,12 @@ quarantine of FMC. The persisted diagnostics showed three model-output defects:
 None of the fixes changes a score: the technical value is computed by software,
 the shared values were already used later in the pipeline, and the confidence
 fix restores the value the model meant.
+
+## 9. Live confirmation of the fixes (2026-10-01)
+
+Validation run with commit `fbee600` (tree `0e2ea183`), waves BIT:BAMI,
+NYSE:WTRG, BIT:TIT, BIT:UCG, 1,389 s (previous run 2,486 s): zero processing
+failures, no wave retry, no quarantine; all checks PASS. Four of eight research
+`COMPLETE` (WTRG SHORT 54.7, UCG LONG 52.8, TIT SHORT 52.8, TIT LONG 50.7), all
+excluded as `SCORE_BELOW_THRESHOLD`; every company-frame component came from the
+shared assessment.

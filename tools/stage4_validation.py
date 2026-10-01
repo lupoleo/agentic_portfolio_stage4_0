@@ -580,6 +580,18 @@ def run_live(args: argparse.Namespace) -> dict[str, Any]:
         inspection = inspect_research(sandbox_database, since)
     except Exception as exc:  # noqa: BLE001 - diagnostic surface
         inspection = {"error": repr(exc), "r1_acceptance": "FAIL", "r1_checks": []}
+    shadow_export = None
+    if not args.no_shadow_ledger:
+        try:
+            from app.e2e.shadow_ledger import ShadowLedgerStore, export_to_ledger
+
+            shadow_export = export_to_ledger(
+                sandbox_database,
+                ShadowLedgerStore(REPO_ROOT / "data" / "state" / "shadow_ledger.db"),
+                f"validation:{workdir.parent.name}",
+            )
+        except Exception as exc:  # noqa: BLE001 - reported, never fails the level
+            shadow_export = {"error": repr(exc)}
     waves = (replenishment or {}).get("waves", [])
     return {
         "step": "live",
@@ -616,6 +628,7 @@ def run_live(args: argparse.Namespace) -> dict[str, Any]:
                 for wave in waves
             ],
         },
+        "shadow_ledger_export": shadow_export,
         "research_inspection": inspection,
         "r1_acceptance": inspection.get("r1_acceptance"),
         "table_counts_before": counts_before,
@@ -1063,6 +1076,8 @@ def main(argv: list[str] | None = None) -> int:
     live.add_argument("--max-hypotheses", type=int, default=4)
     live.add_argument("--timeout-seconds", type=float, default=3600.0)
     live.add_argument("--log", type=Path)
+    live.add_argument("--no-shadow-ledger", action="store_true",
+                      help="do not export scored hypotheses to data/state/shadow_ledger.db")
     live.add_argument("--out", type=Path)
 
     inspect = subparsers.add_parser("inspect")

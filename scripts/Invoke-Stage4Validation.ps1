@@ -37,7 +37,8 @@ param(
     [string] $Model = 'qwen3:8b',
     [ValidateRange(5, 600)] [int] $LiveTimeoutMinutes = 90,
     [string] $WorkRoot,
-    [switch] $ForceLive
+    [switch] $ForceLive,
+    [switch] $NoShadowLedger
 )
 
 
@@ -178,6 +179,7 @@ try {
                 '--log', (Join-Parts @($ResultDir, 'live_cli.log')),
                 '--out', $liveJson)
             if ($RunId) { $liveArgs += @('--run-id', $RunId) }
+            if ($NoShadowLedger) { $liveArgs += '--no-shadow-ledger' }
             Invoke-Logged -Exe $Python -Arguments $liveArgs -LogPath (Join-Parts @($ResultDir, 'live.log')) | Out-Null
             $steps['live'] = Read-JsonFile $liveJson
         }
@@ -218,7 +220,7 @@ finally {
             'live' {
                 if ($result.summary) {
                     $opportunities = @($result.summary.opportunity_ids) -join ','
-                    $detail = "exit=$($result.exit_code) terminal=$($result.summary.terminal_reason) opportunities=[$opportunities] frontier=$($result.summary.frontier_ranking_mode) qualified=$($result.summary.frontier_ranking_qualified_count) r1_acceptance=$($result.r1_acceptance) r2_acceptance=$($result.research_inspection.r2_acceptance) elapsed=$($result.elapsed_seconds)s"
+                    $detail = "exit=$($result.exit_code) terminal=$($result.summary.terminal_reason) opportunities=[$opportunities] frontier=$($result.summary.frontier_ranking_mode) qualified=$($result.summary.frontier_ranking_qualified_count) r1_acceptance=$($result.r1_acceptance) r2_acceptance=$($result.research_inspection.r2_acceptance) shadow_ledger=$(($result.shadow_ledger_export | ConvertTo-Json -Compress)) elapsed=$($result.elapsed_seconds)s"
                 }
                 elseif ($result.reason) { $detail = "$($result.reason)" }
                 elseif ($result.error) { $detail = "$($result.error)" }
