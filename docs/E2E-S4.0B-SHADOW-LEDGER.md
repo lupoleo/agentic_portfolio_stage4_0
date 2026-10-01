@@ -5,7 +5,7 @@
 | Type | New measurement component (no business contract change) |
 | Branch | `e2e-s4.0a-validation-harness` (separate commit) |
 | Storage | `data/state/shadow_ledger.db` (git-ignored, separate from the state DB) |
-| Entry points | `python -m tools.shadow_ledger export / measure / report`; automatic export after each harness `Live` level |
+| Entry points | `python -m tools.shadow_ledger export / measure / report / list`; automatic export after each harness `Live` level |
 | Status | IMPLEMENTED |
 | Approved by | Operator, 2026-10-01 (horizons 5/10/20 sessions; listing's market index as benchmark) |
 
@@ -48,6 +48,16 @@ versus SHORT. By default only the current directional policy
 (`ai-8c3-directional-scoring-v3`) is included; `--all-policies` adds earlier,
 direction-blind scores as a baseline; `--complete-only` restricts to
 `COMPLETE` research.
+
+## 4b. Listing
+
+`list` prints one line per recorded hypothesis: evaluation time, ticker,
+direction, adjusted and raw score, research status, outcome reason and the
+directional return at 5, 10 and 20 sessions (`-` while pending). Filters:
+`--ticker`, `--direction LONG|SHORT`, `--complete-only`, `--current-policy`.
+`--csv PATH` also writes all columns, including index-relative returns, for
+Excel (`;` separator and decimal comma by default; `--decimal-point` for
+`,` and `.`).
 
 ## 5. Safety
 

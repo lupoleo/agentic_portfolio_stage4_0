@@ -106,6 +106,7 @@ measure what it would have earned:
 ```powershell
 python -m tools.shadow_ledger measure                                   # returns after 5/10/20 sessions
 python -m tools.shadow_ledger report --out .\data\cache\shadow\report   # by score bucket
+python -m tools.shadow_ledger list --complete-only --csv .\data\cache\shadow\ledger.csv  # one row per hypothesis
 ```
 
 The ledger has no effect on decisions; it provides the outcome evidence needed

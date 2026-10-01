@@ -275,6 +275,86 @@ def measure_ledger(
     return counts
 
 
+# --- listing ---------------------------------------------------------------------
+
+
+LIST_COLUMNS = (
+    "as_of", "ticker", "direction", "confidence_adjusted_score", "raw_score",
+    "research_status", "research_confidence", "evidence_quality", "outcome_reason",
+    "directional_policy", "source_label",
+    "return_5", "return_10", "return_20", "excess_5", "excess_10", "excess_20",
+)
+
+
+def list_entries(
+    ledger: ShadowLedgerStore,
+    *,
+    ticker: str | None = None,
+    direction: str | None = None,
+    complete_only: bool = False,
+    policies: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """One flat row per entry with its measured returns (None if pending)."""
+    measurements = ledger.measurements()
+    rows = []
+    for entry in ledger.entries():
+        if ticker and entry["ticker"].upper() != ticker.strip().upper():
+            continue
+        if direction and entry["direction"] != direction.strip().upper():
+            continue
+        if complete_only and entry.get("research_status") != "COMPLETE":
+            continue
+        if policies is not None and entry.get("directional_policy") not in policies:
+            continue
+        row = {column: entry.get(column) for column in LIST_COLUMNS[:11]}
+        for horizon in HORIZONS:
+            measured = measurements.get((entry["entry_id"], horizon))
+            row[f"return_{horizon}"] = measured["directional_return"] if measured else None
+            row[f"excess_{horizon}"] = measured["directional_excess_return"] if measured else None
+        rows.append(row)
+    return rows
+
+
+def list_text(rows: list[dict[str, Any]]) -> str:
+    def pct(value: float | None) -> str:
+        return f"{value:+.1%}" if value is not None else "-"
+
+    lines = [
+        f"{'evaluated (UTC)':16}  {'ticker':10} {'dir':5} {'adj':>5} {'raw':>5}  "
+        f"{'research':9} {'outcome':28} {'5s':>7} {'10s':>7} {'20s':>7}"
+    ]
+    for row in rows:
+        lines.append(
+            f"{str(row['as_of'])[:16]:16}  {row['ticker']:10} {row['direction']:5} "
+            f"{row['confidence_adjusted_score']:5.1f} {row['raw_score'] or 0:5.1f}  "
+            f"{str(row['research_status']):9} {str(row['outcome_reason']):28} "
+            f"{pct(row['return_5']):>7} {pct(row['return_10']):>7} {pct(row['return_20']):>7}"
+        )
+    lines.append("")
+    lines.append(f"{len(rows)} entries; returns are directional (positive = the hypothesis was right).")
+    return "\n".join(lines) + "\n"
+
+
+def write_csv(rows: list[dict[str, Any]], path: Path, *, decimal_comma: bool = True) -> None:
+    """CSV for Excel: ';' separator and decimal comma by default (Italian locale)."""
+    import csv
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    def cell(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, float):
+            text = f"{value:.6f}".rstrip("0").rstrip(".")
+            return text.replace(".", ",") if decimal_comma else text
+        return str(value)
+
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.writer(handle, delimiter=";" if decimal_comma else ",")
+        writer.writerow(LIST_COLUMNS)
+        for row in rows:
+            writer.writerow([cell(row[column]) for column in LIST_COLUMNS])
+
 # --- report ----------------------------------------------------------------------
 
 
