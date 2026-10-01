@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 import time
 
-from pydantic import Field, create_model
+from pydantic import Field, create_model, field_validator
 
 from app.ai.inference import AIInferenceRecord, build_inference_record
 from app.ai.models import (
@@ -71,6 +71,16 @@ class ResearchModelOutput(AIModel):
     evidence_quality: EvidenceQuality
     research_confidence: float = Field(ge=0.0, le=1.0)
     requires_additional_research: bool
+
+    @field_validator("research_confidence", mode="before")
+    @classmethod
+    def _percent_scale_confidence(cls, value):
+        # Live 2026-10-01 (FMC LONG): the model returned 30 for 0.30 and the
+        # whole research failed schema validation. A value in (1, 100] is a
+        # percentage on a unit scale; anything else is left to validation.
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and 1 < value <= 100:
+            return value / 100.0
+        return value
 
 
 class ResearchResult(AIModel):

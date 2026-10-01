@@ -10,7 +10,7 @@
 | Baseline date | 2026-09-23 |
 | Last closed checkpoint | E2E-S4.0A.3 — Research Evidence Completion Bridge |
 | Active checkpoint | E2E-S4.0A — First Complete E2E Target — LIVE COMPLETION IN PROGRESS |
-| Regression baseline | 1745 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
+| Regression baseline | 1758 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -1393,3 +1393,11 @@ SHORT materialization re-enabled by the operator on 2026-09-30. A `NEW_SHORT`
 materializes only with `COMPLETE` research, a v3 directional score computed
 for SHORT, company-frame components from the shared assessment, and the
 unchanged 60 / 0.40 gates. The code-level switch can suspend it again.
+
+First live run with SHORT re-enabled (2026-10-01): four `COMPLETE` research,
+SHORT and LONG through the same gates, all below the 60 threshold
+(49.1–55.1). Three `PROCESSING_FAILED` outcomes were traced through the new
+inspection diagnostics to model-output defects (a null company-frame component
+after repair, a confidence on a percent scale, a missing technical rationale
+with invalid citations), now tolerated deterministically without changing any
+score. Details in `docs/AI-8C.3-R2.2-SHARED-COMPANY-ASSESSMENT.md` §8.

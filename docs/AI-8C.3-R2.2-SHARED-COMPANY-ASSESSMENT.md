@@ -119,3 +119,24 @@ computed for SHORT from the hypothesis; every scored company-frame component
 taken from the shared company assessment; the unchanged 60 / 0.40 gates. The
 switch remains in code; setting it to `False` suspends SHORT again with the
 replenishable outcome `SHORT_MATERIALIZATION_SUSPENDED`.
+
+## 8. Live run with SHORT re-enabled and three model-output fixes (2026-10-01)
+
+Validation run `20261001T080054Z` (commit `f255b4e`), waves NASDAQ:XERS,
+NYSE:ACA, NYSE:FMC, NYSE:PNC: all checks PASS, zero side effects, four
+`COMPLETE` research (XERS LONG 55.1, PNC SHORT 53.4, FMC SHORT 52.6, FMC LONG
+49.1, all `SCORE_BELOW_THRESHOLD`). SHORT hypotheses followed the same gates as
+LONG; `SHORT_MATERIALIZATION_SUSPENDED` no longer appeared.
+
+Three hypotheses failed with `PROCESSING_FAILED`, forcing wave retries and the
+quarantine of FMC. The persisted diagnostics showed three model-output defects:
+
+| Hypothesis | Defect | Fix |
+| --- | --- | --- |
+| XERS `NEW_SHORT` | the scoring model left EXPECTATIONS null and the targeted repair returned null again | the shared company assessment is now applied before the scorability check, so a grounded shared value fills the component and no repair is needed; without a shared value the repair runs as before |
+| FMC `NEW_LONG` | `research_confidence` returned as 30 instead of 0.30; the whole research failed schema validation | a value in (1, 100] is read as a percentage and divided by 100; out-of-range values still fail |
+| FMC `NEW_SHORT` | the technical component had no rationale and cited non-existent aliases | when the research cites the canonical TECHNICAL evidence, a missing rationale is replaced by a statement of the deterministic computation and invalid citations by that evidence (recorded in `technical_fallback`); without it the defect still fails closed |
+
+None of the fixes changes a score: the technical value is computed by software,
+the shared values were already used later in the pipeline, and the confidence
+fix restores the value the model meant.

@@ -158,10 +158,27 @@ class OpportunityScoringService:
             technical_features,
             scorable_mask.get("technical", False),
             direction=resolved_direction,
+            canonical_to_alias=canonical_to_alias,
+        )
+        technical_fallback = self._technical_fallback_applied(
+            response.structured_output, transport_output
         )
         transport_output = self._apply_scorable_mask(
             transport_output,
             scorable_mask,
+        )
+        # R2.2 fix (live 2026-10-01): apply the shared company assessment
+        # before the scorability check, so a company-frame component the
+        # scoring model left null is filled by the grounded shared value
+        # instead of failing a targeted repair.
+        transport_output, company_assessment_diagnostics = (
+            self._apply_shared_company_assessment(
+                research,
+                transport_output,
+                scorable_mask,
+                canonical_to_alias,
+                company_evidence,
+            )
         )
         missing_scorable = self._find_scorable_components_returned_null(
             transport_output, scorable_mask
@@ -197,16 +214,6 @@ class OpportunityScoringService:
         transport_output = self._null_scores_without_canonical_context(
             research,
             transport_output,
-        )
-
-        transport_output, company_assessment_diagnostics = (
-            self._apply_shared_company_assessment(
-                research,
-                transport_output,
-                scorable_mask,
-                canonical_to_alias,
-                company_evidence,
-            )
         )
 
         semantic_calibration_applied = not self.normalize_provider_transport
@@ -276,6 +283,7 @@ class OpportunityScoringService:
         )
         diagnostics["direction"]["company_frame_components"] = company_frame_scores
         diagnostics["direction"]["company_assessment"] = company_assessment_diagnostics
+        diagnostics["direction"]["technical_fallback"] = technical_fallback
         diagnostics["direction"]["mirrored_components"] = (
             list(COMPANY_FRAME_COMPONENTS)
             if resolved_direction is Direction.SHORT else []
@@ -1797,6 +1805,7 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
         technical_features: dict[str, Any],
         technical_is_scorable: bool,
         direction: Direction = Direction.LONG,
+        canonical_to_alias: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         if hasattr(structured_output, "model_dump"):
             payload = structured_output.model_dump()
@@ -1829,8 +1838,54 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
         final_score = max(0.0, min(100.0, base + adjustment))
 
         assessment["score"] = final_score
+
+        # Live 2026-10-01 (FMC SHORT): the model omitted the technical
+        # rationale and cited non-existent aliases, which failed the whole
+        # score although the technical value is computed by software. When
+        # the canonical TECHNICAL evidence is cited by this research, a
+        # missing rationale is replaced by a statement of the deterministic
+        # computation and invalid citations by that evidence.
+        technical_alias = None
+        if canonical_to_alias:
+            technical_alias = next(
+                (alias for canonical, alias in canonical_to_alias.items()
+                 if canonical.startswith("EVID-TECH-")),
+                None,
+            )
+        if technical_alias is not None:
+            valid_aliases = set(canonical_to_alias.values())
+            cited = list(assessment.get("supporting_evidence_ids") or [])
+            if not cited or any(value not in valid_aliases for value in cited):
+                assessment["supporting_evidence_ids"] = [technical_alias]
+            if not str(assessment.get("rationale") or "").strip():
+                assessment["rationale"] = (
+                    f"Deterministic {Direction(direction).value} technical base "
+                    f"{base:.1f} from canonical momentum, price versus moving "
+                    f"averages, RSI regime and relative volume; final score "
+                    f"{final_score:.1f} after the bounded model adjustment."
+                )
         payload["technical"] = assessment
         return payload
+
+    @staticmethod
+    def _technical_fallback_applied(original: Any, transformed: dict[str, Any]) -> dict[str, bool]:
+        if hasattr(original, "model_dump"):
+            original = original.model_dump()
+        before = (original or {}).get("technical") if isinstance(original, dict) else None
+        if hasattr(before, "model_dump"):
+            before = before.model_dump()
+        before = before if isinstance(before, dict) else {}
+        after = transformed.get("technical") or {}
+        return {
+            "rationale_generated": (
+                not str(before.get("rationale") or "").strip()
+                and bool(str(after.get("rationale") or "").strip())
+            ),
+            "citations_replaced": (
+                list(before.get("supporting_evidence_ids") or [])
+                != list(after.get("supporting_evidence_ids") or [])
+            ),
+        }
 
     @staticmethod
     def _format_canonical_technical_features(
