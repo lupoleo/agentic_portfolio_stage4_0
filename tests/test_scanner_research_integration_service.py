@@ -193,7 +193,16 @@ def test_cache_only_miss_is_explicit_and_makes_no_network_calls(tmp_path):
     assert not stage3.opportunities
 
 
-def test_short_materialization_is_suspended_by_default(tmp_path):
+def test_short_materialization_is_enabled_by_default():
+    import app.scanner.research_integration as integration
+
+    assert integration.SHORT_MATERIALIZATION_ENABLED is True
+
+
+def test_short_materialization_can_be_suspended(tmp_path, monkeypatch):
+    import app.scanner.research_integration as integration
+
+    monkeypatch.setattr(integration, "SHORT_MATERIALIZATION_ENABLED", False)
     value, stage3, market, news = service(tmp_path)
     run = value.run(universe(), now=NOW)
     assert run.status is IntegrationRunStatus.COMPLETED

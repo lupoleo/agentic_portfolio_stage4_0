@@ -5,7 +5,7 @@
 | Type | Revision of a reopened contract (AI-8C.3 Opportunity Scoring) |
 | Also affected | Stage 4 runtime wiring; S2.F materialization gate for SHORT |
 | Branch | `e2e-s4.0a-validation-harness` (separate commit) |
-| Status | ACCEPTED 2026-09-30; SHORT re-enable pending operator decision |
+| Status | ACCEPTED 2026-09-30; SHORT materialization re-enabled by the operator |
 | Approved by | Operator, 2026-09-30 |
 
 ## 1. Reason
@@ -109,3 +109,13 @@ The run's R1 check reported one research (UCG.MI) listing
 not a missing metric, and the research validator correctly does not treat it
 as a contradiction; the harness check is now aligned with the validator rule
 and passes on this run.
+
+## 7. SHORT materialization re-enabled (operator decision, 2026-09-30)
+
+After the live acceptance above, the operator re-enabled SHORT
+materialization (`SHORT_MATERIALIZATION_ENABLED = True`). A `NEW_SHORT`
+materializes only with all of: `COMPLETE` research; a v3 directional score
+computed for SHORT from the hypothesis; every scored company-frame component
+taken from the shared company assessment; the unchanged 60 / 0.40 gates. The
+switch remains in code; setting it to `False` suspends SHORT again with the
+replenishable outcome `SHORT_MATERIALIZATION_SUSPENDED`.

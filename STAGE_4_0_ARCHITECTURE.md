@@ -10,7 +10,7 @@
 | Baseline date | 2026-09-23 |
 | Last closed checkpoint | E2E-S4.0A.3 — Research Evidence Completion Bridge |
 | Active checkpoint | E2E-S4.0A — First Complete E2E Target — LIVE COMPLETION IN PROGRESS |
-| Regression baseline | 1744 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
+| Regression baseline | 1745 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -607,7 +607,7 @@ meaning of a policy decision.
 | --- | --- | --- |
 | Quantitative portfolio foundation | Stage 2.5 | CLOSED / FROZEN |
 | Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN — AI-8C.2-R1 (forward uncertainties) ACCEPTED 2026-09-30; AI-8C.2-R2 (context gaps, confidence, bank fundamentals) ACCEPTED 2026-09-30; AI-8C.2-R3 (fundamental reporting cycle) ACCEPTED 2026-09-30 |
-| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30; AI-8C.3-R2 (directional scoring) safety criteria ACCEPTED 2026-09-30, AI-8C.3-R2.1 (company-frame fundamental/expectations) safety met, consistency not met; SHORT materialization suspended; AI-8C.3-R2.2 (shared company assessment) ACCEPTED 2026-09-30 |
+| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30; AI-8C.3-R2 (directional scoring) safety criteria ACCEPTED 2026-09-30, AI-8C.3-R2.1 (company-frame fundamental/expectations) safety met, consistency not met; SHORT materialization suspended; AI-8C.3-R2.2 (shared company assessment) ACCEPTED 2026-09-30; SHORT materialization re-enabled |
 | Portfolio Filter | PF-1A through PF-1H | CLOSED / FROZEN |
 | Exchange universe and provider policy | E2E-S2.1A through S2.1J | CLOSED |
 | Instrument taxonomy | E2E-S2.2A | CLOSED |
@@ -1388,3 +1388,8 @@ AI-8C.3-R2.2 live acceptance (2026-09-30): all four LONG/SHORT pairs shared one
 company assessment, their company-frame values were identical and the SHORT
 values were exact mirrors (previously up to 22.5 points apart). SHORT
 materialization remains suspended pending the operator's decision.
+
+SHORT materialization re-enabled by the operator on 2026-09-30. A `NEW_SHORT`
+materializes only with `COMPLETE` research, a v3 directional score computed
+for SHORT, company-frame components from the shared assessment, and the
+unchanged 60 / 0.40 gates. The code-level switch can suspend it again.

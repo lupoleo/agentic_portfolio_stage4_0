@@ -359,7 +359,10 @@ def test_materialization_rejects_v1_directional_scores(short_enabled):
     assert decision.reason is HypothesisOutcomeReason.SCORE_DIRECTION_MISMATCH
 
 
-def test_short_materialization_is_suspended_even_with_valid_short_score():
+def test_short_materialization_is_suspended_even_with_valid_short_score(monkeypatch):
+    import app.scanner.research_integration as integration
+
+    monkeypatch.setattr(integration, "SHORT_MATERIALIZATION_ENABLED", False)
     _, short = _directional_hypotheses()
     complete = integration_research(short)
     decision = opportunity_materialization_decision(
@@ -368,7 +371,10 @@ def test_short_materialization_is_suspended_even_with_valid_short_score():
     assert decision.reason is HypothesisOutcomeReason.SHORT_MATERIALIZATION_SUSPENDED
 
 
-def test_long_materialization_is_unaffected_by_short_suspension():
+def test_long_materialization_is_unaffected_by_short_suspension(monkeypatch):
+    import app.scanner.research_integration as integration
+
+    monkeypatch.setattr(integration, "SHORT_MATERIALIZATION_ENABLED", False)
     long, _ = _directional_hypotheses()
     complete = integration_research(long)
     decision = opportunity_materialization_decision(

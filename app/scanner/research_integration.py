@@ -303,14 +303,15 @@ def shared_company_assessment_used(score: OpportunityScore) -> bool:
     )
 
 
-# Temporary safety switch (operator decision 2026-09-30). The R2.1 live run
-# showed that company-frame FUNDAMENTAL/EXPECTATIONS scores differ by up to
-# 22.5 points between the LONG and SHORT sides of the same listing, in both
-# directions. Until AI-8C.3-R2.2 introduces one shared company assessment per
-# listing, NEW_SHORT hypotheses are researched and scored but never
-# materialized. This is a code-level constant, not a policy field, so run and
-# session identities are unaffected.
-SHORT_MATERIALIZATION_ENABLED = False
+# Safety switch (operator decisions 2026-09-30). SHORT materialization was
+# suspended after the R2.1 live run showed company-frame scores diverging
+# between the LONG and SHORT sides of a listing. AI-8C.3-R2.2 (one shared,
+# direction-free company assessment) was accepted live, and the operator
+# re-enabled SHORT. A SHORT still materializes only with a v3 directional
+# score whose company-frame components all come from the shared assessment.
+# Set to False to suspend SHORT again (outcome SHORT_MATERIALIZATION_SUSPENDED).
+# Code-level constant, not a policy field: run identities are unaffected.
+SHORT_MATERIALIZATION_ENABLED = True
 
 
 def scored_direction(score: OpportunityScore) -> str | None:
