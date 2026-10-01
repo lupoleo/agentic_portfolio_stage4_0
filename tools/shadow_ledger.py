@@ -3,6 +3,8 @@
     python -m tools.shadow_ledger export --source-db PATH --label LABEL
     python -m tools.shadow_ledger measure
     python -m tools.shadow_ledger report [--all-policies] [--complete-only]
+    python -m tools.shadow_ledger list [--ticker T] [--direction LONG|SHORT]
+                                       [--complete-only] [--current-policy] [--csv PATH]
 
 The ledger lives in data/state/shadow_ledger.db (git-ignored). Source
 databases are opened read-only; nothing here touches portfolio, proposal,
@@ -19,8 +21,11 @@ from app.e2e.shadow_ledger import (
     ShadowLedgerStore,
     build_report,
     export_to_ledger,
+    list_entries,
+    list_text,
     measure_ledger,
     report_markdown,
+    write_csv,
 )
 
 CURRENT_POLICIES = {"ai-8c3-directional-scoring-v3"}
@@ -39,12 +44,32 @@ def main(argv: list[str] | None = None) -> int:
                         help="include scores from earlier directional policies")
     report.add_argument("--complete-only", action="store_true")
     report.add_argument("--out", type=Path)
+    listing = commands.add_parser("list", help="show recorded hypotheses and their returns")
+    listing.add_argument("--ticker")
+    listing.add_argument("--direction", choices=("LONG", "SHORT", "long", "short"))
+    listing.add_argument("--complete-only", action="store_true")
+    listing.add_argument("--current-policy", action="store_true",
+                         help="only scores of the current directional policy")
+    listing.add_argument("--csv", type=Path, help="also write a CSV for Excel")
+    listing.add_argument("--decimal-point", action="store_true",
+                         help="CSV with ',' separator and '.' decimals instead of ';' and ','")
     args = parser.parse_args(argv)
 
     ledger = ShadowLedgerStore(args.ledger)
     if args.command == "export":
         result = export_to_ledger(args.source_db, ledger, args.label)
         print(json.dumps(result))
+        return 0
+    if args.command == "list":
+        rows = list_entries(
+            ledger, ticker=args.ticker, direction=args.direction,
+            complete_only=args.complete_only,
+            policies=CURRENT_POLICIES if args.current_policy else None,
+        )
+        print(list_text(rows), end="")
+        if args.csv:
+            write_csv(rows, args.csv, decimal_comma=not args.decimal_point)
+            print(f"CSV: {args.csv}")
         return 0
     if args.command == "measure":
         print(json.dumps(measure_ledger(ledger)))

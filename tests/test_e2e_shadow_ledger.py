@@ -188,3 +188,62 @@ def test_cli_roundtrip(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out.strip())["added"] == 1
     assert cli.main(["--ledger", str(ledger), "report", "--out", str(tmp_path / "r" / "report")]) == 0
     assert (tmp_path / "r" / "report.md").is_file()
+
+
+def test_list_filters_and_returns(tmp_path):
+    from app.e2e.shadow_ledger import list_entries, list_text
+
+    source = tmp_path / "state.db"
+    _source_db(source, [
+        _row(1, adjusted=53.0), _row(2, kind="NEW_SHORT", adjusted=55.0),
+        _row(3, ticker="BMW.DE", status="PARTIAL", policy="ai-8c3-directional-scoring-v1"),
+    ])
+    ledger = ShadowLedgerStore(tmp_path / "ledger.db")
+    export_to_ledger(source, ledger, "run-a")
+    days = _business_days(date(2026, 9, 21), 14)             # 5 sessions after 2026-09-30, not 10
+    prices = {"UCG.MI": _prices(days, 100.0, 1.0), "FTSEMIB.MI": _prices(days, 1000.0, 5.0),
+              "BMW.DE": _prices(days, 80.0, 0.0), "^GDAXI": _prices(days, 20000.0, 0.0)}
+    measure_ledger(ledger, now=datetime(2026, 10, 9, tzinfo=timezone.utc), price_loader=_loader(prices))
+
+    rows = list_entries(ledger)
+    assert len(rows) == 3
+    long = next(row for row in rows if row["direction"] == "LONG" and row["ticker"] == "UCG.MI")
+    assert long["return_5"] == pytest.approx(5 / 107)
+    assert long["return_10"] is None and long["return_20"] is None   # not yet reached
+    assert [r["ticker"] for r in list_entries(ledger, ticker="ucg.mi")] == ["UCG.MI", "UCG.MI"]
+    assert len(list_entries(ledger, direction="short")) == 1
+    assert len(list_entries(ledger, complete_only=True)) == 2
+    assert len(list_entries(ledger, policies={"ai-8c3-directional-scoring-v3"})) == 2
+    text = list_text(rows)
+    assert "+4.7%" in text and "3 entries" in text
+
+
+def test_csv_for_italian_excel(tmp_path):
+    from app.e2e.shadow_ledger import LIST_COLUMNS, list_entries, write_csv
+
+    source = tmp_path / "state.db"
+    _source_db(source, [_row(1, adjusted=53.25)])
+    ledger = ShadowLedgerStore(tmp_path / "ledger.db")
+    export_to_ledger(source, ledger, "run-a")
+    path = tmp_path / "out" / "ledger.csv"
+    write_csv(list_entries(ledger), path)
+    content = path.read_text(encoding="utf-8-sig").splitlines()
+    assert content[0] == ";".join(LIST_COLUMNS)
+    assert ";53,25;" in content[1]
+    write_csv(list_entries(ledger), path, decimal_comma=False)
+    assert ",53.25," in path.read_text(encoding="utf-8-sig").splitlines()[1]
+
+
+def test_cli_list(tmp_path, capsys):
+    from tools import shadow_ledger as cli
+
+    source = tmp_path / "state.db"
+    _source_db(source, [_row(1)])
+    ledger = tmp_path / "ledger.db"
+    cli.main(["--ledger", str(ledger), "export", "--source-db", str(source), "--label", "x"])
+    capsys.readouterr()
+    assert cli.main(["--ledger", str(ledger), "list", "--direction", "LONG",
+                     "--csv", str(tmp_path / "list.csv")]) == 0
+    out = capsys.readouterr().out
+    assert "UCG.MI" in out and "1 entries" in out
+    assert (tmp_path / "list.csv").is_file()
