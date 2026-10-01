@@ -72,7 +72,7 @@ def get_prompt():
 
 
 def test_prompt_version_bumped():
-    assert RESEARCH_PROMPT_VERSION == "opportunity-research-v1.2"
+    assert RESEARCH_PROMPT_VERSION == "opportunity-research-v1.5-context-gaps-confidence"
 
 
 def test_prompt_distinguishes_unknown_from_unsupported():
@@ -84,13 +84,13 @@ def test_prompt_distinguishes_unknown_from_unsupported():
 def test_prompt_requires_supported_analysis_even_with_unknowns():
     prompt = get_prompt()
     assert "Analyse every materially supported claim" in prompt
-    assert "Unsupported information belongs in unknowns" in prompt
+    assert "Material as-of information missing from the evidence belongs in unknowns" in prompt
 
 
 def test_prompt_defines_partial_semantics():
     prompt = get_prompt()
     assert "PARTIAL means useful analysis is possible" in prompt
-    assert "material evidence remains" in prompt
+    assert "a material as-of fact" in prompt
 
 
 def test_partial_low_quality_result_keeps_supported_fields():
@@ -119,5 +119,5 @@ def test_prompt_forbids_empty_analysis_due_to_uncertainty():
 
 def test_inference_uses_new_prompt_version():
     result = ResearchService(FakeProvider()).research(candidate(), evidence(), now=NOW)
-    assert result.inference.prompt_version == "opportunity-research-v1.2"
-    assert result.research.metadata["prompt_version"] == "opportunity-research-v1.2"
+    assert result.inference.prompt_version == "opportunity-research-v1.5-context-gaps-confidence"
+    assert result.research.metadata["prompt_version"] == "opportunity-research-v1.5-context-gaps-confidence"

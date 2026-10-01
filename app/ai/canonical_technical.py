@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import pandas as pd
 
 from app.analysis.technical import analyze_technical
 from app.market_data.yahoo_provider import get_price_history
+
+
+# AI-8C.3-R1 reopened the frozen AI-8C.3 contract to carry the Stage-2
+# 20-session annualized volatility. v1 had no explicit version field.
+CANONICAL_TECHNICAL_CONTRACT_VERSION = "ai-8c3-canonical-technical-v2"
 
 
 @dataclass(frozen=True)
@@ -29,7 +35,21 @@ class CanonicalTechnicalInput:
     rvol: float
     trend: str
 
+    # Stage-2 annualized 20-session close-to-close volatility, in percent.
+    # None when it cannot be computed; it is never estimated or defaulted.
+    volatility_20d_pct: float | None = None
+
     source: str = "STAGE2_YAHOO_TECHNICAL"
+    contract_version: str = CANONICAL_TECHNICAL_CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        value = self.volatility_20d_pct
+        if value is None:
+            return
+        if not math.isfinite(value) or value < 0:
+            raise ValueError(
+                "volatility_20d_pct must be a finite non-negative percentage"
+            )
 
 
 def _period_return_pct(
@@ -48,6 +68,16 @@ def _period_return_pct(
         return None
 
     return ((current / previous) - 1.0) * 100.0
+
+
+def _finite_non_negative_or_none(value: float | None) -> float | None:
+    """Keep a deterministic measurement only when it is well defined."""
+    if value is None:
+        return None
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        return None
+    return number
 
 
 def canonical_technical_from_history(
@@ -71,6 +101,9 @@ def canonical_technical_from_history(
         rsi14=float(technical.rsi14),
         rvol=float(technical.relative_volume),
         trend=str(technical.trend),
+        volatility_20d_pct=_finite_non_negative_or_none(
+            technical.volatility_20d_pct
+        ),
     )
 
 

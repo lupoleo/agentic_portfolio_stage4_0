@@ -70,6 +70,17 @@ class EvidenceQualityAssessment(AIModel):
         raise KeyError(dimension)
 
 
+# AI-8C.2-R3: fundamental evidence is dated by the end of the most recently
+# reported quarter. That date is at least one quarter old for most of the
+# reporting cycle, so a uniform 90-day staleness rule made HIGH quality
+# impossible for calendar-quarter reporters for weeks after each quarter
+# end. A reported quarter is current until the next one can be reported:
+# one quarter plus a 45-day publication window.
+FUNDAMENTAL_REPORTING_WINDOW_DAYS = 135
+FUNDAMENTAL_RECENTLY_REPORTED_DAYS = 45
+EVIDENCE_QUALITY_POLICY = "evidence-quality-v2-reporting-cycle"
+
+
 class EvidenceQualityEvaluator:
     """Conservative, deterministic V1 evidence-set calibration.
 
@@ -108,6 +119,7 @@ class EvidenceQualityEvaluator:
         undated = 0
         freshness_points = 0.0
         provenance_complete = 0
+        fundamental_period_stale = False
         warnings: list[str] = []
 
         for item in material:
@@ -126,6 +138,16 @@ class EvidenceQualityEvaluator:
                 continue
 
             age_days = max(0.0, (now - self._utc(timestamp)).total_seconds() / 86400.0)
+            if item.kind is EvidenceKind.FUNDAMENTAL:
+                if age_days <= FUNDAMENTAL_RECENTLY_REPORTED_DAYS:
+                    freshness_points += 1.0
+                elif age_days <= FUNDAMENTAL_REPORTING_WINDOW_DAYS:
+                    freshness_points += 0.70
+                else:
+                    stale += 1
+                    freshness_points += 0.10
+                    fundamental_period_stale = True
+                continue
             if age_days <= 7:
                 freshness_points += 1.0
             elif age_days <= 30:
@@ -180,6 +202,8 @@ class EvidenceQualityEvaluator:
             warnings.append("UNDATED_EVIDENCE_PRESENT")
         if stale:
             warnings.append("STALE_EVIDENCE_PRESENT")
+        if fundamental_period_stale:
+            warnings.append("FUNDAMENTAL_REPORTING_PERIOD_STALE")
         if total and len(source_ids) <= 1:
             warnings.append("LOW_SOURCE_DIVERSITY")
         if counts[EvidenceCoverageDimension.FUNDAMENTAL] == 0:
@@ -199,7 +223,8 @@ class EvidenceQualityEvaluator:
             undated_items=undated,
             warnings=warnings,
             metadata={
-                "policy": "evidence-quality-v1",
+                "policy": EVIDENCE_QUALITY_POLICY,
+                "fundamental_reporting_window_days": FUNDAMENTAL_REPORTING_WINDOW_DAYS,
                 "quality_is_independent_of_coverage": True,
                 "publisher_reliability_not_inferred": True,
             },

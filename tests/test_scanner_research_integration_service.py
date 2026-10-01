@@ -113,8 +113,23 @@ class ScoringServiceStub:
                 raw_score=70, score_confidence=.6,
                 confidence_adjusted_score=62,
             ),
-            diagnostics={"stub": True},
+            diagnostics=_stub_diagnostics(kwargs.get("direction")),
         )
+
+
+def _stub_diagnostics(direction):
+    diagnostics = {"stub": True}
+    if direction is not None:
+        diagnostics["direction"] = {
+            "direction": direction.value,
+            "direction_source": "HYPOTHESIS",
+            "policy_version": "ai-8c3-directional-scoring-v3",
+            "company_assessment": {"sources": {
+                "fundamental": "SHARED_COMPANY_ASSESSMENT",
+                "expectations": "SHARED_COMPANY_ASSESSMENT",
+            }},
+        }
+    return diagnostics
 
 
 def service(tmp_path):
@@ -132,7 +147,11 @@ def service(tmp_path):
     return value, stage3, market, news
 
 
-def test_directional_pipeline_persists_two_opportunities_and_provenance(tmp_path):
+def test_directional_pipeline_persists_two_opportunities_and_provenance(tmp_path, monkeypatch):
+    # Exercises the SHORT path as it will run once AI-8C.3-R2.2 re-enables it.
+    import app.scanner.research_integration as integration
+
+    monkeypatch.setattr(integration, "SHORT_MATERIALIZATION_ENABLED", True)
     value, stage3, market, news = service(tmp_path)
     run = value.run(universe(), now=NOW)
     assert run.status is IntegrationRunStatus.COMPLETED
@@ -172,3 +191,24 @@ def test_cache_only_miss_is_explicit_and_makes_no_network_calls(tmp_path):
     )
     assert any(x.diagnostics == ("CACHE_ONLY_MISS",) for x in outcomes)
     assert not stage3.opportunities
+
+
+def test_short_materialization_is_enabled_by_default():
+    import app.scanner.research_integration as integration
+
+    assert integration.SHORT_MATERIALIZATION_ENABLED is True
+
+
+def test_short_materialization_can_be_suspended(tmp_path, monkeypatch):
+    import app.scanner.research_integration as integration
+
+    monkeypatch.setattr(integration, "SHORT_MATERIALIZATION_ENABLED", False)
+    value, stage3, market, news = service(tmp_path)
+    run = value.run(universe(), now=NOW)
+    assert run.status is IntegrationRunStatus.COMPLETED
+    assert len(run.opportunity_ids) == 1
+    outcomes = value.integration_store.list_outcomes(run.run_id)
+    by_kind = {outcome.kind.value: outcome for outcome in outcomes if outcome.kind.value in ("NEW_LONG", "NEW_SHORT")}
+    assert by_kind["NEW_LONG"].reason.value == "OPPORTUNITY_CREATED"
+    assert by_kind["NEW_SHORT"].reason.value == "SHORT_MATERIALIZATION_SUSPENDED"
+    assert by_kind["NEW_SHORT"].opportunity_score_id is not None

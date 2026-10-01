@@ -56,6 +56,16 @@ class _OpportunityComponentGroundingRepairTransport(AIModel):
 
 
 from app.ai.research_models import EvidenceQuality, OpportunityResearch
+from app.cio.models import Direction
+
+
+# AI-8C.3-R2: scores measure support for the hypothesis direction.
+# R2.1 (v2): fundamental and expectations are scored in the company frame and
+# mirrored in software for SHORT, like the technical component.
+# R2.2 (v3): FUNDAMENTAL/EXPECTATIONS come from one shared, direction-free
+# company assessment per listing when available.
+DIRECTIONAL_SCORING_POLICY = "ai-8c3-directional-scoring-v3"
+COMPANY_FRAME_COMPONENTS = ("fundamental", "expectations")
 
 
 @dataclass(frozen=True)
@@ -74,10 +84,12 @@ class OpportunityScoringService:
         provider: Any,
         *,
         calculator: OpportunityScoreCalculator | None = None,
-        prompt_version: str = "opportunity-scoring-v11-score-rationale-consistency-diagnostics",
+        prompt_version: str = "opportunity-scoring-v14-directional-company-frame",
         normalize_provider_transport: bool = False,
+        company_assessment_service: Any | None = None,
     ) -> None:
         self.provider = provider
+        self.company_assessment_service = company_assessment_service
         self.calculator = calculator or OpportunityScoreCalculator()
         self.prompt_version = prompt_version
         self.normalize_provider_transport = normalize_provider_transport
@@ -90,7 +102,14 @@ class OpportunityScoringService:
         scoring_profile: OpportunityScoringProfile = OpportunityScoringProfile.STANDARD,
         sensitivity: DataSensitivity = DataSensitivity.PUBLIC,
         canonical_technical_input: CanonicalTechnicalInput | None = None,
+        direction: Direction | None = None,
+        company_evidence: list[Any] | None = None,
     ) -> OpportunityScoringServiceResult:
+        # Callers without a hypothesis direction keep the historical LONG
+        # semantics; the source is recorded so it can never be mistaken for
+        # an explicit directional score.
+        resolved_direction = Direction(direction) if direction is not None else Direction.LONG
+        direction_source = "HYPOTHESIS" if direction is not None else "DEFAULT_LONG"
         alias_to_canonical, canonical_to_alias = self._build_evidence_alias_maps(
             research.evidence_ids
         )
@@ -109,6 +128,7 @@ class OpportunityScoringService:
                 canonical_to_alias=canonical_to_alias,
                 scorable_mask=scorable_mask,
                 technical_features=technical_features,
+                direction=resolved_direction,
             ),
             sensitivity=sensitivity,
             reasoning_mode=ReasoningMode.REASONING,
@@ -120,6 +140,7 @@ class OpportunityScoringService:
                 "research_id": research.research_id,
                 "candidate_id": research.candidate_id,
                 "scoring_profile": scoring_profile.value,
+                "direction": resolved_direction.value,
             },
         )
 
@@ -131,14 +152,33 @@ class OpportunityScoringService:
             response.structured_output
         )
 
+        ai_technical_opinion = initial_model_scores.get("technical")
         transport_output = self._apply_bounded_technical_score(
             response.structured_output,
             technical_features,
             scorable_mask.get("technical", False),
+            direction=resolved_direction,
+            canonical_to_alias=canonical_to_alias,
+        )
+        technical_fallback = self._technical_fallback_applied(
+            response.structured_output, transport_output
         )
         transport_output = self._apply_scorable_mask(
             transport_output,
             scorable_mask,
+        )
+        # R2.2 fix (live 2026-10-01): apply the shared company assessment
+        # before the scorability check, so a company-frame component the
+        # scoring model left null is filled by the grounded shared value
+        # instead of failing a targeted repair.
+        transport_output, company_assessment_diagnostics = (
+            self._apply_shared_company_assessment(
+                research,
+                transport_output,
+                scorable_mask,
+                canonical_to_alias,
+                company_evidence,
+            )
         )
         missing_scorable = self._find_scorable_components_returned_null(
             transport_output, scorable_mask
@@ -155,6 +195,7 @@ class OpportunityScoringService:
                 missing_components=missing_scorable,
                 canonical_to_alias=canonical_to_alias,
                 sensitivity=sensitivity,
+                direction=resolved_direction,
             )
         invalid_components = self._find_scored_components_without_evidence(
             transport_output
@@ -167,6 +208,7 @@ class OpportunityScoringService:
                 invalid_components=invalid_components,
                 canonical_to_alias=canonical_to_alias,
                 sensitivity=sensitivity,
+                direction=resolved_direction,
             )
 
         transport_output = self._null_scores_without_canonical_context(
@@ -180,6 +222,14 @@ class OpportunityScoringService:
                 transport_output,
                 scorable_mask,
             )
+
+        company_frame_scores = self._component_score_snapshot(transport_output)
+        company_frame_scores = {
+            name: company_frame_scores.get(name) for name in COMPANY_FRAME_COMPONENTS
+        }
+        transport_output = self._mirror_company_frame_components(
+            transport_output, resolved_direction
+        )
 
         factor_extraction_applied = not self.normalize_provider_transport
         factor_diagnostics = {
@@ -205,6 +255,7 @@ class OpportunityScoringService:
                 self._apply_canonical_factor_extraction_v2(
                     research,
                     components,
+                    direction=resolved_direction,
                 )
             )
 
@@ -219,7 +270,23 @@ class OpportunityScoringService:
         )
         diagnostics["factor_extraction"] = factor_diagnostics
         diagnostics["score_rationale_consistency"] = (
-            self._build_score_rationale_consistency_diagnostics(components)
+            self._build_score_rationale_consistency_diagnostics(
+                components, direction=resolved_direction
+            )
+        )
+        diagnostics["direction"] = self._direction_diagnostics(
+            resolved_direction,
+            direction_source,
+            technical_features,
+            ai_technical_opinion,
+            components.technical.score,
+        )
+        diagnostics["direction"]["company_frame_components"] = company_frame_scores
+        diagnostics["direction"]["company_assessment"] = company_assessment_diagnostics
+        diagnostics["direction"]["technical_fallback"] = technical_fallback
+        diagnostics["direction"]["mirrored_components"] = (
+            list(COMPANY_FRAME_COMPONENTS)
+            if resolved_direction is Direction.SHORT else []
         )
 
         calculation = self.calculator.calculate(
@@ -242,6 +309,122 @@ class OpportunityScoringService:
             response=response,
             diagnostics=diagnostics,
         )
+
+    @classmethod
+    def _direction_diagnostics(
+        cls,
+        direction: Direction,
+        source: str,
+        technical_features: dict[str, Any],
+        ai_technical_opinion: Any,
+        final_technical_score: float | None,
+    ) -> dict[str, Any]:
+        long_base = cls._deterministic_technical_base_score(
+            technical_features, direction=Direction.LONG
+        )
+        directional_base = cls._deterministic_technical_base_score(
+            technical_features, direction=direction
+        )
+        disagreement = None
+        if ai_technical_opinion is not None and directional_base is not None:
+            disagreement = float(ai_technical_opinion) - directional_base
+        return {
+            "policy_version": DIRECTIONAL_SCORING_POLICY,
+            "direction": direction.value,
+            "direction_source": source,
+            "technical_base_long_frame": long_base,
+            "technical_base_directional": directional_base,
+            "ai_technical_opinion": ai_technical_opinion,
+            "ai_technical_disagreement": disagreement,
+            # A model that ignored the direction typically disagrees with the
+            # mirrored base by 20+ points; the bounded adjustment caps the
+            # effect at 10 points, and this flag makes it auditable.
+            "possible_direction_ignored": (
+                disagreement is not None and abs(disagreement) >= 20.0
+            ),
+            "final_technical_score": final_technical_score,
+        }
+
+    def _apply_shared_company_assessment(
+        self,
+        research: OpportunityResearch,
+        transport_output: Any,
+        scorable_mask: dict[str, bool],
+        canonical_to_alias: dict[str, str],
+        company_evidence: list[Any] | None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Replace company-frame components with the shared assessment.
+
+        Applied only to SCORABLE components whose shared score is grounded in
+        evidence cited by this research. Otherwise the scoring model's own
+        company-frame value is kept and the source says so.
+        """
+        if hasattr(transport_output, "model_dump"):
+            payload = transport_output.model_dump()
+        else:
+            payload = dict(transport_output)
+        sources = {name: "SCORING_MODEL" for name in COMPANY_FRAME_COMPONENTS}
+        diagnostics: dict[str, Any] = {"sources": sources, "assessment": None}
+        if self.company_assessment_service is None or company_evidence is None:
+            diagnostics["reason"] = "COMPANY_ASSESSMENT_DISABLED"
+            return payload, diagnostics
+
+        assessment = self.company_assessment_service.assess(research.ticker, company_evidence)
+        diagnostics["assessment"] = assessment.to_diagnostics()
+        model_values = {}
+        for name in COMPANY_FRAME_COMPONENTS:
+            current = payload.get(name)
+            if hasattr(current, "model_dump"):
+                current = current.model_dump()
+            model_values[name] = (current or {}).get("score") if isinstance(current, dict) else None
+            shared = assessment.component(name)
+            if not scorable_mask.get(name, False) or shared.score is None:
+                continue
+            aliases = [canonical_to_alias[x] for x in shared.evidence_ids if x in canonical_to_alias]
+            if not aliases:
+                sources[name] = "SCORING_MODEL_SHARED_NOT_GROUNDED"
+                continue
+            payload[name] = {
+                "score": shared.score,
+                "rationale": shared.rationale,
+                "supporting_evidence_ids": aliases,
+            }
+            sources[name] = "SHARED_COMPANY_ASSESSMENT"
+        diagnostics["scoring_model_values"] = model_values
+        return payload, diagnostics
+
+    @staticmethod
+    def _mirror_company_frame_components(
+        structured_output: Any,
+        direction: Direction,
+    ) -> dict[str, Any]:
+        """Convert company-frame fundamental/expectations scores for SHORT.
+
+        The model scores these bipolar components from the company's point of
+        view for every hypothesis. For SHORT, support is the mirror image
+        around the neutral 50 anchor. Null scores stay null; rationales and
+        evidence references are unchanged. LONG output is returned as is.
+        """
+        if hasattr(structured_output, "model_dump"):
+            payload = structured_output.model_dump()
+        elif isinstance(structured_output, dict):
+            payload = dict(structured_output)
+        else:
+            raise ValueError(
+                "Opportunity scoring structured_output must be a mapping or model"
+            )
+        if direction is not Direction.SHORT:
+            return payload
+        for name in COMPANY_FRAME_COMPONENTS:
+            assessment = payload.get(name)
+            if hasattr(assessment, "model_dump"):
+                assessment = assessment.model_dump()
+            if not isinstance(assessment, dict) or assessment.get("score") is None:
+                continue
+            assessment = dict(assessment)
+            assessment["score"] = max(0.0, min(100.0, 100.0 - float(assessment["score"])))
+            payload[name] = assessment
+        return payload
 
     _COMPONENT_NAMES = (
         "thesis",
@@ -421,6 +604,7 @@ class OpportunityScoringService:
         missing_components: list[str],
         canonical_to_alias: dict[str, str],
         sensitivity: DataSensitivity,
+        direction: Direction = Direction.LONG,
     ) -> dict[str, Any]:
         """Targeted one-pass repair for SCORABLE dimensions returned as null."""
         if hasattr(original_output, "model_dump"):
@@ -436,9 +620,9 @@ class OpportunityScoringService:
         ]
         request = AIRequest(
             task=AITask.REASONING,
-            prompt=self._build_missing_scorable_repair_prompt(
+            prompt=self._with_direction_line(direction, self._build_missing_scorable_repair_prompt(
                 missing_components, allowed_aliases
-            ),
+            )),
             sensitivity=sensitivity,
             reasoning_mode=ReasoningMode.REASONING,
             response_format=ResponseFormat.JSON,
@@ -478,6 +662,38 @@ class OpportunityScoringService:
         return merged
 
     @staticmethod
+    def _with_direction_line(direction: Direction, prompt: str) -> str:
+        return (
+            f"HYPOTHESIS DIRECTION: {direction.value}\n"
+            + OpportunityScoringService._direction_rule(direction)
+            + "\n\n"
+            + prompt
+        )
+
+    @staticmethod
+    def _direction_rule(direction: Direction) -> str:
+        company_frame = (
+            "FUNDAMENTAL and EXPECTATIONS are always scored from the company's "
+            "point of view, whatever the direction: strong business evidence or "
+            "favorable asymmetry for the company scores high, weak or adverse "
+            "evidence scores low. Software converts them for the hypothesis "
+            "direction; do not invert them yourself."
+        )
+        if direction is Direction.SHORT:
+            return (
+                "THESIS, CATALYST and TECHNICAL measure support for a SHORT "
+                "position: evidence that the price is likely to fall is "
+                "supportive (high score); evidence of strength is adverse (low "
+                "score). " + company_frame
+            )
+        return (
+            "THESIS, CATALYST and TECHNICAL measure support for a LONG "
+            "position: evidence that the price is likely to rise is supportive "
+            "(high score); evidence of weakness is adverse (low score). "
+            + company_frame
+        )
+
+    @staticmethod
     def _build_missing_scorable_repair_prompt(
         missing_components: list[str], allowed_aliases: list[str]
     ) -> str:
@@ -504,6 +720,7 @@ Do not invent evidence references.
         invalid_components: list[str],
         canonical_to_alias: dict[str, str],
         sensitivity: DataSensitivity,
+        direction: Direction = Direction.LONG,
     ) -> dict[str, Any]:
         """Repair only scored components that omitted supporting evidence.
 
@@ -531,11 +748,11 @@ Do not invent evidence references.
 
         repair_request = AIRequest(
             task=AITask.REASONING,
-            prompt=self._build_grounding_repair_prompt(
+            prompt=self._with_direction_line(direction, self._build_grounding_repair_prompt(
                 invalid_components=invalid_components,
                 original_subset=original_subset,
                 allowed_aliases=allowed_aliases,
-            ),
+            )),
             sensitivity=sensitivity,
             reasoning_mode=ReasoningMode.REASONING,
             response_format=ResponseFormat.JSON,
@@ -905,10 +1122,14 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
         cls,
         score: float | None,
         rationale: str | None,
+        direction: Direction = Direction.LONG,
     ) -> dict[str, object]:
         signals = cls._rationale_polarity_signals(rationale)
         supportive = signals["supportive"]
         adverse = signals["adverse"]
+        if Direction(direction) is Direction.SHORT:
+            # Company-level weakness supports a SHORT hypothesis.
+            supportive, adverse = adverse, supportive
 
         if score is None or not (rationale or "").strip():
             status = "UNASSESSABLE"
@@ -946,6 +1167,7 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
     def _build_score_rationale_consistency_diagnostics(
         cls,
         components: OpportunityComponentScoringOutput,
+        direction: Direction = Direction.LONG,
     ) -> dict[str, object]:
         component_results = {}
         for name in cls._COMPONENT_NAMES:
@@ -954,6 +1176,7 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
                 cls._classify_score_rationale_consistency(
                     assessment.score,
                     assessment.rationale,
+                    direction=direction,
                 )
             )
 
@@ -964,6 +1187,7 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
         ]
         return {
             "policy_version": "score-rationale-consistency-v1-diagnostics",
+            "direction": Direction(direction).value,
             "diagnostics_only": True,
             "components": component_results,
             "possible_contradictions": contradictions,
@@ -1008,6 +1232,7 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
     def _canonical_factors_from_research(
         cls,
         research: OpportunityResearch,
+        direction: Direction = Direction.LONG,
     ) -> dict[str, list[str]]:
         """Extract factors only from canonical, governed research fields.
 
@@ -1016,16 +1241,27 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
         - key_risks and bear_case are explicitly adverse framing;
         - unknowns and contradictory_evidence are explicitly uncertainty framing.
         """
-        positive = cls._canonical_factor_list([
-            research.bull_case,
-        ])
-        negative = cls._canonical_factor_list([
-            *research.key_risks,
-            research.bear_case,
-        ])
+        if Direction(direction) is Direction.SHORT:
+            # Mirror of the LONG mapping: downside framing supports a SHORT.
+            positive = cls._canonical_factor_list([
+                research.bear_case,
+                *research.key_risks,
+            ])
+            negative = cls._canonical_factor_list([
+                research.bull_case,
+            ])
+        else:
+            positive = cls._canonical_factor_list([
+                research.bull_case,
+            ])
+            negative = cls._canonical_factor_list([
+                *research.key_risks,
+                research.bear_case,
+            ])
         uncertainty = cls._canonical_factor_list([
             *research.unknowns,
             *research.contradictory_evidence,
+            *research.forward_uncertainties,
         ])
         return {
             "positive_factors": positive,
@@ -1038,6 +1274,7 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
         cls,
         research: OpportunityResearch,
         components: OpportunityComponentScoringOutput,
+        direction: Direction = Direction.LONG,
     ) -> tuple[OpportunityComponentScoringOutput, dict[str, Any]]:
         """Complete factor lists from governed research plus grounded components.
 
@@ -1046,7 +1283,10 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
         score > 55 -> positive, score < 45 -> negative, otherwise uncertainty.
         This avoids a second LLM call and never uses ungrounded free-form factors.
         """
-        research_factors = cls._canonical_factors_from_research(research)
+        direction = Direction(direction)
+        research_factors = cls._canonical_factors_from_research(
+            research, direction=direction
+        )
 
         positive = list(research_factors["positive_factors"])
         negative = list(research_factors["negative_factors"])
@@ -1101,12 +1341,20 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
                 "negative_factors": len(negative),
                 "uncertainty_factors": len(uncertainty),
             },
+            "direction": direction.value,
             "primary_source_fields": {
-                "positive_factors": ["bull_case"],
-                "negative_factors": ["key_risks", "bear_case"],
+                "positive_factors": (
+                    ["bear_case", "key_risks"]
+                    if direction is Direction.SHORT else ["bull_case"]
+                ),
+                "negative_factors": (
+                    ["bull_case"]
+                    if direction is Direction.SHORT else ["key_risks", "bear_case"]
+                ),
                 "uncertainty_factors": [
                     "unknowns",
                     "contradictory_evidence",
+                    "forward_uncertainties",
                 ],
             },
             "component_fallback_sources": fallback_sources,
@@ -1369,8 +1617,10 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
             ),
             "rsi_regime": cls._rsi_regime(numbers["rsi14"]),
             "volume_regime": cls._rvol_regime(numbers["rvol"]),
+            "volatility_20d_pct": canonical_technical_input.volatility_20d_pct,
             "stage2_trend": canonical_technical_input.trend,
             "technical_input_source": canonical_technical_input.source,
+            "technical_input_contract": canonical_technical_input.contract_version,
         }
 
         directional = [
@@ -1478,11 +1728,16 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
     def _deterministic_technical_base_score(
         cls,
         features: dict[str, Any],
+        direction: Direction = Direction.LONG,
     ) -> float | None:
         """Map canonical technical regimes to a stable 0-100 base score.
 
         The base is intentionally simple and auditable. AI may only apply a
         small bounded semantic adjustment after this deterministic mapping.
+
+        AI-8C.3-R2: the directional contribution is mirrored for SHORT
+        hypotheses, while the RSI-extreme penalty stays a risk in both
+        directions. LONG results are identical to the pre-R2 mapping.
         """
         directional = (
             features.get("momentum_5d"),
@@ -1494,7 +1749,6 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
         if not known:
             return None
 
-        score = 50.0
         weights = {
             "POSITIVE": 7.5,
             "NEGATIVE": -7.5,
@@ -1503,21 +1757,25 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
             "BELOW_ADVERSE": -10.0,
             "NEAR_NEUTRAL": 0.0,
         }
+        directional_contribution = 0.0
         for value in known:
-            score += weights.get(value, 0.0)
-
-        rsi = features.get("rsi_regime")
-        if rsi in {"OVERBOUGHT_RISK", "OVERSOLD"}:
-            score -= 2.5
+            directional_contribution += weights.get(value, 0.0)
 
         volume = features.get("volume_regime")
         bias = features.get("technical_bias")
         if volume == "ELEVATED":
             if bias in {"POSITIVE", "POSITIVE_MIXED"}:
-                score += 5.0
+                directional_contribution += 5.0
             elif bias in {"NEGATIVE", "NEGATIVE_MIXED"}:
-                score -= 5.0
+                directional_contribution -= 5.0
 
+        risk_penalty = 0.0
+        rsi = features.get("rsi_regime")
+        if rsi in {"OVERBOUGHT_RISK", "OVERSOLD"}:
+            risk_penalty = -2.5
+
+        sign = -1.0 if Direction(direction) is Direction.SHORT else 1.0
+        score = 50.0 + sign * directional_contribution + risk_penalty
         return max(0.0, min(100.0, round(score / 2.5) * 2.5))
 
     @staticmethod
@@ -1546,6 +1804,8 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
         structured_output: Any,
         technical_features: dict[str, Any],
         technical_is_scorable: bool,
+        direction: Direction = Direction.LONG,
+        canonical_to_alias: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         if hasattr(structured_output, "model_dump"):
             payload = structured_output.model_dump()
@@ -1559,7 +1819,9 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
         if not technical_is_scorable:
             return payload
 
-        base = cls._deterministic_technical_base_score(technical_features)
+        base = cls._deterministic_technical_base_score(
+            technical_features, direction=direction
+        )
         if base is None:
             return payload
 
@@ -1576,8 +1838,54 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
         final_score = max(0.0, min(100.0, base + adjustment))
 
         assessment["score"] = final_score
+
+        # Live 2026-10-01 (FMC SHORT): the model omitted the technical
+        # rationale and cited non-existent aliases, which failed the whole
+        # score although the technical value is computed by software. When
+        # the canonical TECHNICAL evidence is cited by this research, a
+        # missing rationale is replaced by a statement of the deterministic
+        # computation and invalid citations by that evidence.
+        technical_alias = None
+        if canonical_to_alias:
+            technical_alias = next(
+                (alias for canonical, alias in canonical_to_alias.items()
+                 if canonical.startswith("EVID-TECH-")),
+                None,
+            )
+        if technical_alias is not None:
+            valid_aliases = set(canonical_to_alias.values())
+            cited = list(assessment.get("supporting_evidence_ids") or [])
+            if not cited or any(value not in valid_aliases for value in cited):
+                assessment["supporting_evidence_ids"] = [technical_alias]
+            if not str(assessment.get("rationale") or "").strip():
+                assessment["rationale"] = (
+                    f"Deterministic {Direction(direction).value} technical base "
+                    f"{base:.1f} from canonical momentum, price versus moving "
+                    f"averages, RSI regime and relative volume; final score "
+                    f"{final_score:.1f} after the bounded model adjustment."
+                )
         payload["technical"] = assessment
         return payload
+
+    @staticmethod
+    def _technical_fallback_applied(original: Any, transformed: dict[str, Any]) -> dict[str, bool]:
+        if hasattr(original, "model_dump"):
+            original = original.model_dump()
+        before = (original or {}).get("technical") if isinstance(original, dict) else None
+        if hasattr(before, "model_dump"):
+            before = before.model_dump()
+        before = before if isinstance(before, dict) else {}
+        after = transformed.get("technical") or {}
+        return {
+            "rationale_generated": (
+                not str(before.get("rationale") or "").strip()
+                and bool(str(after.get("rationale") or "").strip())
+            ),
+            "citations_replaced": (
+                list(before.get("supporting_evidence_ids") or [])
+                != list(after.get("supporting_evidence_ids") or [])
+            ),
+        }
 
     @staticmethod
     def _format_canonical_technical_features(
@@ -1591,6 +1899,7 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
             "close_vs_sma50_pct",
             "rsi14",
             "rvol",
+            "volatility_20d_pct",
             "momentum_1d",
             "momentum_5d",
             "momentum_20d",
@@ -1603,6 +1912,7 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
             "technical_bias",
             "stage2_trend",
             "technical_input_source",
+            "technical_input_contract",
         )
         return "\n".join(
             f"- {name}: {features.get(name)}"
@@ -1623,7 +1933,29 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
         "key_risks": 400,
         "contradictory_evidence": 400,
         "unknowns": 400,
+        "forward_uncertainties": 400,
     }
+
+    @classmethod
+    def _direction_prompt_block(cls, direction: Direction) -> str:
+        lines = ["DIRECTIONAL SCORING", cls._direction_rule(direction)]
+        if direction is Direction.SHORT:
+            lines.extend([
+                "For this SHORT hypothesis the anchors below describe support for",
+                "the SHORT case, not for the company:",
+                "- thesis: coherence and evidence of the bear case against the bull case.",
+                "- catalyst: credible near-term negative developments are supportive;",
+                "  positive catalysts are adverse; no identifiable catalyst stays null",
+                "  or weak and is never supportive by itself.",
+                "- fundamental: company frame, exactly as for a LONG (see above).",
+                "- technical: canonical labels keep their elementary meaning (price",
+                "  above/below the average, positive/negative momentum), but their",
+                "  support is inverted: NEGATIVE broad alignment usually belongs in",
+                "  65-80 and POSITIVE broad alignment in 20-40. The deterministic",
+                "  technical base score above is already expressed for the SHORT.",
+                "- expectations: company frame, exactly as for a LONG (see above).",
+            ])
+        return "\n".join(lines)
 
     @staticmethod
     def _serialize_context_value(value: Any) -> str:
@@ -1717,7 +2049,9 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
         canonical_to_alias: dict[str, str] | None = None,
         scorable_mask: dict[str, bool] | None = None,
         technical_features: dict[str, Any] | None = None,
+        direction: Direction = Direction.LONG,
     ) -> str:
+        direction = Direction(direction)
         use_transport_aliases = canonical_to_alias is not None
         if use_transport_aliases:
             evidence_aliases = [
@@ -1764,8 +2098,9 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
                 research.technical_context
             )
         technical_base_score = self._deterministic_technical_base_score(
-            technical_features
+            technical_features, direction=direction
         )
+        direction_block = self._direction_prompt_block(direction)
         technical_feature_lines = self._format_canonical_technical_features(
             technical_features
         )
@@ -1773,6 +2108,7 @@ Do not invent evidence references. Do not return canonical long evidence IDs.
 
 SCORING PROFILE: {scoring_profile.value}
 TICKER: {research.ticker}
+HYPOTHESIS DIRECTION: {direction.value}
 RESEARCH ID: {research.research_id}
 RESEARCH STATUS: {research.research_status.value}
 EVIDENCE QUALITY: {research.evidence_quality.value}
@@ -1807,11 +2143,14 @@ Bear case: {context["bear_case"]}
 Key risks: {context["key_risks"]}
 Contradictory evidence: {context["contradictory_evidence"]}
 Unknowns: {context["unknowns"]}
+Forward uncertainties: {context["forward_uncertainties"]}
 
 Return ONLY the typed JSON schema requested.
 
 Score each supported dimension from 0 to 100 using ONLY the evidence type
 appropriate to that dimension.
+
+{direction_block}
 
 SEMANTIC COMPONENT BOUNDARIES
 - thesis: overall coherence of the standalone opportunity. It may synthesize

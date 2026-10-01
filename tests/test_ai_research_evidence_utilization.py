@@ -76,7 +76,7 @@ def prompt():
 
 
 def test_prompt_version_bumped_to_v12():
-    assert RESEARCH_PROMPT_VERSION == "opportunity-research-v1.2"
+    assert RESEARCH_PROMPT_VERSION == "opportunity-research-v1.5-context-gaps-confidence"
 
 
 def test_prompt_requires_technical_context_when_technical_evidence_exists():

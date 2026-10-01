@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import re
 from typing import TYPE_CHECKING, Iterable
 
 from app.ai.research_models import EvidenceQuality, ResearchStatus
@@ -24,6 +25,8 @@ class ResearchCoverageCode(str, Enum):
     INSUFFICIENT_WITHOUT_MORE_RESEARCH = "INSUFFICIENT_WITHOUT_MORE_RESEARCH"
     UNKNOWN_CONTRADICTS_SUPPLIED_FACT = "UNKNOWN_CONTRADICTS_SUPPLIED_FACT"
     CONTRADICTION_LOOKS_LIKE_RISK = "CONTRADICTION_LOOKS_LIKE_RISK"
+    # AI-8C.2-R2: warning that triggers a field-scoped confidence repair.
+    RESEARCH_CONFIDENCE_INCOHERENT = "RESEARCH_CONFIDENCE_INCOHERENT"
 
 
 @dataclass(frozen=True)
@@ -83,6 +86,59 @@ class ResearchCoverageValidator:
         "market_context", "market context", "sector", "peer",
         "volatility", "guidance",
     )
+    # AI-8C.2-R1: a forward uncertainty that reads as missing as-of data, or a
+    # material item with no forward framing, is treated as a material gap.
+    _GAP_MARKERS = (
+        "not provided", "not supplied", "not disclosed", "not available",
+        "unavailable", "missing", "not specified", "not stated",
+        "not reported", "not included", "not given", "no data", "lack of",
+        "not explicitly",
+    )
+    _FORWARD_MARKERS = (
+        "future", "long-term", "long term", "sustainab", "potential", "will ",
+        "could", "may ", "might", "outlook", "trajectory", "going forward",
+        "next ", "upcoming", "impact", "effect", "reaction", "if ", "whether",
+        "timing", "likelihood", "beyond", "remain", "persist", "durab",
+        "success of", "ability to", "execution", "outcome", "revision",
+    )
+    # AI-8C.2-R2 context-gap principle: a comparison or finer granularity of a
+    # measure the evidence already supplies is recorded but does not block
+    # COMPLETE. Each rule needs its underlying anchor in the evidence.
+    _COMPARISON_MARKERS = (
+        "peer", "relative to", "versus", " vs", "benchmark", "comparison",
+        "compared", "comparative", "industry average", "sector average",
+    )
+    _VALUATION_TERMS = ("valuation", "p/e", "p/b", "multiple", "ev/ebitda", "price-to")
+    _VALUATION_ANCHORS = ("p/e valuation multiple", "analyst price target mean")
+    _FUNDAMENTAL_ANCHOR = "fundamental company snapshot"
+    _GUIDANCE_ANCHORS = (
+        "analyst earnings estimate", "analyst revenue estimate", "forward eps estimate",
+    )
+    _GRANULARITY_MARKERS = ("quarter", "trend", "breakdown", "segment")
+    _GRANULAR_MEASURE_ANCHORS = (
+        ("margin", ("gross margin:", "operating margin:", "profit margin:")),
+        ("revenue", ("revenue:",)),
+        ("earnings", ("trailing eps:",)),
+        ("eps", ("trailing eps:",)),
+        ("cash flow", ("operating cash flow:", "free cash flow:")),
+    )
+    # Supplied fundamental/analyst facts an unknown must not claim are missing.
+    _SUPPLIED_FACT_FAMILIES = (
+        (("consensus", "eps estimate", "earnings estimate", "analyst estimate",
+          "analyst forecast"), ("analyst earnings estimate", "forward eps estimate")),
+        (("price target", "target price"), ("analyst price target mean",)),
+        (("p/e", "pe ratio", "price-to-earnings"), ("p/e valuation multiple",)),
+        (("operating margin",), ("operating margin:",)),
+        (("profit margin", "net margin"), ("profit margin:",)),
+        (("operating cash flow",), ("operating cash flow:",)),
+        (("free cash flow",), ("free cash flow:",)),
+        (("total debt", "debt level", "debt levels"), ("total debt:",)),
+    )
+    _SUPPLIED_FACT_EXEMPTIONS = (
+        "peer", "relative", "sector", "industry", "quarter", "trend", "growth",
+        "revision", "guidance", "segment", "breakdown", "p/b", "history",
+        "historical", "forward p/e",
+    )
     _RISK_LIKE_TERMS = (
         "overbought", "oversold", "pullback", "correction", "risk",
         "valuation", "caution", "volatile", "volatility", "reversal",
@@ -94,7 +150,7 @@ class ResearchCoverageValidator:
         evidence: Iterable["ResearchEvidence"],
     ) -> ResearchCoverageReport:
         evidence_list = list(evidence)
-        evidence_blob = " ".join(f"{x.source_type} {x.text}" for x in evidence_list).lower()
+        evidence_blob = self.evidence_blob(evidence_list)
         issues = []
 
         if self._has_any(evidence_blob, self._TECHNICAL_TERMS) and not self._meaningful(output.technical_context):
@@ -132,7 +188,7 @@ class ResearchCoverageValidator:
                 "INSUFFICIENT_EVIDENCE must require additional research.",
             ))
 
-        material_unknowns = [u for u in output.unknowns if self._has_any(u.lower(), self._MATERIAL_UNKNOWN_TERMS)]
+        material_unknowns = self.material_gaps(output, evidence_blob)
         if output.research_status == ResearchStatus.COMPLETE and material_unknowns:
             issues.append(ResearchCoverageIssue(
                 ResearchCoverageCode.COMPLETE_WITH_MATERIAL_UNKNOWNS,
@@ -149,6 +205,21 @@ class ResearchCoverageValidator:
                     f"Possible risk placed in contradictory_evidence: {value}",
                 ))
 
+        if (
+            output.research_status != ResearchStatus.INSUFFICIENT_EVIDENCE
+            and output.evidence_quality in (EvidenceQuality.MEDIUM, EvidenceQuality.HIGH)
+            and output.research_confidence < self.MIN_COHERENT_CONFIDENCE
+        ):
+            issues.append(ResearchCoverageIssue(
+                ResearchCoverageCode.RESEARCH_CONFIDENCE_INCOHERENT,
+                ResearchCoverageSeverity.WARNING,
+                (
+                    f"research_confidence={output.research_confidence} is incoherent "
+                    f"with {output.evidence_quality.value} evidence quality and a "
+                    f"{output.research_status.value} assessment."
+                ),
+            ))
+
         for unknown in output.unknowns:
             if self._unknown_conflicts_with_evidence(unknown, evidence_blob):
                 issues.append(ResearchCoverageIssue(
@@ -158,6 +229,65 @@ class ResearchCoverageValidator:
                 ))
 
         return ResearchCoverageReport(tuple(issues))
+
+    MIN_COHERENT_CONFIDENCE = 0.2
+
+    @staticmethod
+    def evidence_blob(evidence) -> str:
+        return " ".join(f"{x.source_type} {x.text}" for x in evidence).lower()
+
+    def context_gaps(self, items, evidence_blob: str | None) -> list[str]:
+        """Items that compare or refine a measure the evidence supplies."""
+        if not evidence_blob:
+            return []
+        gaps = []
+        for item in items:
+            low = item.lower()
+            if self._has_any(low, self._COMPARISON_MARKERS):
+                valuation = self._has_any(low, self._VALUATION_TERMS)
+                anchors = self._VALUATION_ANCHORS if valuation else (self._FUNDAMENTAL_ANCHOR,)
+                if self._has_any(evidence_blob, anchors):
+                    gaps.append(item)
+                    continue
+            if "guidance" in low and self._has_any(evidence_blob, self._GUIDANCE_ANCHORS):
+                gaps.append(item)
+                continue
+            if self._has_any(low, self._GRANULARITY_MARKERS):
+                for measure, anchors in self._GRANULAR_MEASURE_ANCHORS:
+                    if measure in low and self._has_any(evidence_blob, anchors):
+                        gaps.append(item)
+                        break
+        return gaps
+
+    def material_unknowns(self, output) -> list[str]:
+        """Material items among unknowns (missing as-of facts)."""
+        return [
+            u for u in output.unknowns
+            if self._has_any(u.lower(), self._MATERIAL_UNKNOWN_TERMS)
+        ]
+
+    def reclassified_forward_uncertainties(self, output) -> list[str]:
+        """Forward items that are really material as-of gaps."""
+        reclassified = []
+        for item in getattr(output, "forward_uncertainties", None) or []:
+            low = item.lower()
+            gap_marked = self._has_any(low, self._GAP_MARKERS)
+            material = self._has_any(low, self._MATERIAL_UNKNOWN_TERMS)
+            forward = self._has_any(low, self._FORWARD_MARKERS)
+            if gap_marked or (material and not forward):
+                reclassified.append(item)
+        return reclassified
+
+    def material_gaps(self, output, evidence_blob: str | None = None) -> list[str]:
+        """Everything that blocks COMPLETE: material unknowns plus forward
+        items that read as missing as-of data, minus context gaps (AI-8C.2-R2)
+        when the evidence is known. Without evidence nothing is exempted."""
+        candidates = (
+            self.material_unknowns(output)
+            + self.reclassified_forward_uncertainties(output)
+        )
+        exempt = set(self.context_gaps(candidates, evidence_blob))
+        return [item for item in candidates if item not in exempt]
 
     @staticmethod
     def _meaningful(value):
@@ -200,6 +330,25 @@ class ResearchCoverageValidator:
         )
         if any(term in low for term in implication_qualifiers):
             return False
+
+        # AI-8C.2-R2: fundamental and analyst facts supplied by the evidence.
+        if not any(
+            term in low
+            for term in ResearchCoverageValidator._SUPPLIED_FACT_EXEMPTIONS
+            + ResearchCoverageValidator._FORWARD_MARKERS
+        ):
+            for terms, anchors in ResearchCoverageValidator._SUPPLIED_FACT_FAMILIES:
+                if any(term in low for term in terms) and any(
+                    anchor in evidence_blob for anchor in anchors
+                ):
+                    return True
+
+        # AI-8C.2-R1: canonical TECHNICAL evidence states the 20-session
+        # annualized volatility (AI-8C.3-R1). An unknown claiming volatility is
+        # missing contradicts it, unless it quotes a value (then it is about
+        # the future of a known level). "beyond"/"other" do not exempt it.
+        if "volatil" in low and "annualized volatility" in evidence_blob:
+            return not re.search(r"\d", low)
 
         families = {
             "rsi": ("rsi",),

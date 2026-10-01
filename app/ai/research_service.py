@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 import time
 
-from pydantic import Field, create_model
+from pydantic import Field, create_model, field_validator
 
 from app.ai.inference import AIInferenceRecord, build_inference_record
 from app.ai.models import (
@@ -35,7 +35,8 @@ from app.ai.research_semantics import (
 )
 
 
-RESEARCH_PROMPT_VERSION = "opportunity-research-v1.2"
+RESEARCH_PROMPT_VERSION = "opportunity-research-v1.5-context-gaps-confidence"
+RESEARCH_CONTRACT_VERSION = "ai-8c2-research-v3-context-gaps"
 
 # AI-7D.4D.3d: hard deterministic budgets for the repair input.
 # These protect the local 4096-token model from pathological initial outputs.
@@ -66,9 +67,20 @@ class ResearchModelOutput(AIModel):
     key_risks: list[str] = Field(default_factory=list)
     contradictory_evidence: list[str] = Field(default_factory=list)
     unknowns: list[str] = Field(default_factory=list)
+    forward_uncertainties: list[str] = Field(default_factory=list)
     evidence_quality: EvidenceQuality
     research_confidence: float = Field(ge=0.0, le=1.0)
     requires_additional_research: bool
+
+    @field_validator("research_confidence", mode="before")
+    @classmethod
+    def _percent_scale_confidence(cls, value):
+        # Live 2026-10-01 (FMC LONG): the model returned 30 for 0.30 and the
+        # whole research failed schema validation. A value in (1, 100] is a
+        # percentage on a unit scale; anything else is left to validation.
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and 1 < value <= 100:
+            return value / 100.0
+        return value
 
 
 class ResearchResult(AIModel):
@@ -176,7 +188,10 @@ class ResearchService:
 
         # AI-8C.3b.6: derive context-presence requirements from the canonical
         # evidence semantic tags, not from stochastic research prose.
-        required_context_fields = self._required_context_fields(evidence_semantics)
+        required_context_fields = self._required_context_fields(
+            evidence_semantics,
+            evidence_items=evidence_items,
+        )
 
         snapshot_id = (
             portfolio_snapshot_id
@@ -243,12 +258,14 @@ class ResearchService:
         )
 
         inferences = [inference]
+        initial_research_confidence = output.research_confidence
         coverage = self.coverage_validator.validate(output, evidence)
         semantic = self.semantic_evaluator.evaluate(output, evidence)
         missing_required_contexts = self._missing_required_context_fields(
             output,
             required_context_fields,
         )
+        confidence_repair_requested = self._confidence_incoherent(coverage)
         repair_attempted = False
         deterministic_status_normalized = False
         deterministic_unknowns_canonicalized = False
@@ -258,10 +275,17 @@ class ResearchService:
             not coverage.is_valid
             or not semantic.is_valid
             or missing_required_contexts
+            or confidence_repair_requested
         ):
             repair_attempted = True
             repairable_fields = self._repairable_fields(coverage, semantic)
-            repairable_fields.update(missing_required_contexts)
+            if confidence_repair_requested:
+                repairable_fields.add("research_confidence")
+            repairable_fields.update(
+                self._context_presence_repairable_fields(
+                    missing_required_contexts
+                )
+            )
             repair_output_schema = self._build_repair_output_schema(repairable_fields)
             repair_request = AIRequest(
                 task=AITask.RESEARCH,
@@ -455,6 +479,7 @@ class ResearchService:
             key_risks=output.key_risks,
             contradictory_evidence=output.contradictory_evidence,
             unknowns=output.unknowns,
+            forward_uncertainties=output.forward_uncertainties,
             evidence_quality=output.evidence_quality,
             research_confidence=output.research_confidence,
             evidence_ids=[x.evidence_id for x in evidence],
@@ -464,6 +489,24 @@ class ResearchService:
                 "provider": response.provider,
                 "model": response.model,
                 "prompt_version": self.prompt_version,
+                "research_contract": RESEARCH_CONTRACT_VERSION,
+                "material_gaps": self.coverage_validator.material_gaps(
+                    output, self.coverage_validator.evidence_blob(evidence)
+                ),
+                "context_gaps": self.coverage_validator.context_gaps(
+                    self.coverage_validator.material_unknowns(output)
+                    + self.coverage_validator.reclassified_forward_uncertainties(output),
+                    self.coverage_validator.evidence_blob(evidence),
+                ),
+                "initial_research_confidence": initial_research_confidence,
+                "research_confidence_repaired": (
+                    confidence_repair_requested
+                    and output.research_confidence != initial_research_confidence
+                ),
+                "forward_items_reclassified_as_gaps": (
+                    self.coverage_validator.reclassified_forward_uncertainties(output)
+                ),
+                "forward_uncertainty_count": len(output.forward_uncertainties),
                 "repair_attempted": repair_attempted,
                 "deterministic_status_normalized": deterministic_status_normalized,
                 "deterministic_unknowns_canonicalized": (
@@ -536,9 +579,12 @@ class ResearchService:
             diagnostics=research_diagnostics,
         )
 
-    @staticmethod
+    @classmethod
     def _required_context_fields(
+        cls,
         evidence_semantics: list["EvidenceSemanticAssessment"],
+        *,
+        evidence_items: list["EvidenceItem"] | None = None,
     ) -> set[str]:
         """Map canonical evidence dimensions to deterministic context presence.
 
@@ -557,6 +603,8 @@ class ResearchService:
                 required.update({"event_context", "catalyst_assessment"})
             if "ANALYST_EXPECTATIONS" in dimensions:
                 required.add("event_context")
+                if cls._has_scorable_analyst_expectations(evidence_items):
+                    required.add("expectations_assessment")
             if "MACRO" in dimensions:
                 required.add("market_context")
             if "PRICE_TECHNICAL" in dimensions:
@@ -564,15 +612,45 @@ class ResearchService:
         return required
 
     @staticmethod
+    def _has_scorable_analyst_expectations(
+        evidence_items: list["EvidenceItem"] | None,
+    ) -> bool:
+        if not evidence_items:
+            return False
+        for item in evidence_items:
+            metadata = getattr(item.evidence, "metadata", {}) or {}
+            if metadata.get("expectations_scorable") is True:
+                return True
+        return False
+
+    @staticmethod
     def _missing_required_context_fields(
         output: ResearchModelOutput,
         required_fields: set[str],
     ) -> set[str]:
-        return {
-            name
-            for name in required_fields
-            if getattr(output, name, None) is None
-        }
+        missing: set[str] = set()
+        for name in required_fields:
+            value = getattr(output, name, None)
+            if value is None:
+                missing.add(name)
+            elif (
+                name == "expectations_assessment"
+                and value == ExpectationsAssessment.UNKNOWN
+            ):
+                missing.add(name)
+        return missing
+
+    @staticmethod
+    def _context_presence_repairable_fields(
+        missing_required_contexts: set[str],
+    ) -> set[str]:
+        """Authorize only the missing context fields themselves.
+
+        Context presence never independently authorizes rewriting research
+        governance. Status fields remain repairable only when the canonical
+        coverage or semantic validators report their own status invariant.
+        """
+        return set(missing_required_contexts)
 
     @staticmethod
     def _context_presence_repair_instructions(
@@ -584,11 +662,12 @@ class ResearchService:
             "technical_context",
             "event_context",
             "catalyst_assessment",
+            "expectations_assessment",
         }
         targets = sorted(context_fields.intersection(allowed_fields))
         if not targets:
             return "CONTEXT PRESENCE GATE: no context-presence repair required."
-        return (
+        instructions = (
             "CONTEXT PRESENCE GATE:\n"
             "- Canonical evidence semantics deterministically indicate that "
             "these context categories are represented: "
@@ -599,11 +678,25 @@ class ResearchService:
             "- If the evidence still does not support a truthful summary, "
             "omit/null the field rather than inventing content."
         )
+        if "expectations_assessment" in targets:
+            instructions += (
+                "\n- For expectations_assessment, select NOT_PRICED_IN, "
+                "PARTIALLY_PRICED_IN or LARGELY_PRICED_IN only from explicit "
+                "analyst/current-price comparisons in the supplied evidence. "
+                "Do not infer a classification from price performance alone."
+                "\n- Repairing expectations_assessment alone does not authorize "
+                "promotion of research_status or clearing "
+                "requires_additional_research. Those governance fields remain "
+                "protected unless an independent deterministic validator "
+                "explicitly included them in the repair schema."
+            )
+        return instructions
 
     _RESEARCH_LIST_FIELDS = (
         "key_risks",
         "contradictory_evidence",
         "unknowns",
+        "forward_uncertainties",
     )
 
     @classmethod
@@ -998,10 +1091,39 @@ class ResearchService:
             f"{coverage.repair_instructions()}\n\n"
             f"{self._semantic_repair_instructions(semantic)}\n\n"
             f"{self._context_presence_repair_instructions(allowed_fields)}\n\n"
+            f"{self._confidence_repair_instructions(coverage, allowed_fields)}\n\n"
             "SUPPLIED EVIDENCE\n"
             f"{evidence_block}\n\n"
             "PREVIOUS STRUCTURED OUTPUT\n"
             f"{previous_block}\n"
+        )
+
+    @staticmethod
+    def _confidence_incoherent(coverage: ResearchCoverageReport) -> bool:
+        return any(
+            issue.code.value == "RESEARCH_CONFIDENCE_INCOHERENT"
+            for issue in coverage.issues
+        )
+
+    @classmethod
+    def _confidence_repair_instructions(
+        cls,
+        coverage: ResearchCoverageReport,
+        allowed_fields: set[str],
+    ) -> str:
+        if "research_confidence" not in allowed_fields or not cls._confidence_incoherent(coverage):
+            return ""
+        messages = [
+            issue.message for issue in coverage.issues
+            if issue.code.value == "RESEARCH_CONFIDENCE_INCOHERENT"
+        ]
+        return (
+            "RESEARCH CONFIDENCE REPAIR\n"
+            + "\n".join(f"- {message}" for message in messages)
+            + "\n- Return research_confidence using the anchors: 0.2 weak or "
+            "conflicting evidence; 0.5 mixed evidence; 0.7 clear evidence with "
+            "material uncertainty; 0.85 or more broad, consistent evidence.\n"
+            "- Do not change any other field."
         )
 
     @staticmethod
@@ -1043,6 +1165,7 @@ class ResearchService:
             "key_risks": all_dimensions,
             "contradictory_evidence": all_dimensions,
             "unknowns": all_dimensions,
+            "forward_uncertainties": all_dimensions,
         }
 
         requested: set[str] = set()
@@ -1132,6 +1255,9 @@ class ResearchService:
                     previous_output.contradictory_evidence
                 ),
                 "unknowns": len(previous_output.unknowns),
+                "forward_uncertainties": len(
+                    previous_output.forward_uncertainties
+                ),
             },
         }
         serialized = json.dumps(compact, indent=2, ensure_ascii=False)
@@ -1336,12 +1462,29 @@ EVIDENCE-ONLY RULES
 1. Use only facts supported by SUPPLIED EVIDENCE.
 2. Do not browse, infer missing numerical facts, invent consensus, valuation,
    analyst targets, technical indicators, events, guidance, or market data.
-3. Unsupported information belongs in unknowns when it is material.
+3. Material as-of information missing from the evidence belongs in unknowns.
 4. UNKNOWN means "not established by supplied evidence"; it does NOT mean
    that supported evidence cannot be analysed.
 5. Analyse every materially supported claim even when other important fields
    are missing.
 6. Distinguish evidence from interpretation. State uncertainty explicitly.
+
+UNKNOWNS VERSUS FORWARD UNCERTAINTIES
+U1. unknowns: facts that exist or should be knowable at the evidence date but
+    are not in the supplied evidence (e.g. latest quarterly margins, consensus
+    estimates, peer valuation). Phrase each as missing data.
+U2. forward_uncertainties: future outcomes that no evidence available today
+    can establish (future earnings path, sustainability of margins or
+    valuation, market reaction, deal or regulatory outcomes, timing).
+U3. Never put a missing as-of fact in forward_uncertainties and never put a
+    future outcome in unknowns.
+U4. Every investment has forward uncertainties. They never by themselves
+    require additional research or prevent COMPLETE.
+U5. A comparison or finer granularity of a measure the evidence supplies
+    (peer or sector valuation when P/E or analyst targets are supplied,
+    company guidance when analyst estimates are supplied, the latest quarter
+    when trailing margins are supplied) may be listed in unknowns but does not
+    by itself require additional research or prevent COMPLETE.
 
 OUTPUT COMPACTION RULES
 16. The structured result must be concise. Do not reproduce or summarize full
@@ -1349,7 +1492,8 @@ OUTPUT COMPACTION RULES
 17. market_context, fundamental_context, technical_context, event_context and
     catalyst_assessment: maximum 3 short sentences each.
 18. bull_case and bear_case: maximum 2 short sentences each.
-19. key_risks, contradictory_evidence and unknowns: maximum 5 items each;
+19. key_risks, contradictory_evidence, unknowns and forward_uncertainties:
+    maximum 5 items each;
     every item must be one short sentence.
 20. Prefer null or an empty list to filler prose when evidence is absent.
 21. The entire JSON response should normally fit well below 6,000 output
@@ -1375,9 +1519,8 @@ STRUCTURED EVIDENCE UTILIZATION RULES
 9. Conversely, leave a field null when its category is genuinely unsupported.
    Do not fill fields merely for completeness.
 10. Do not list an item as unknown if the supplied evidence already establishes
-    it. You may list a narrower missing extension, e.g. "technical volatility
-    is unknown" when RSI and moving averages are supplied, but never
-    "technical indicators are unknown" in that case.
+    it. When RSI, moving averages, relative volume or volatility are supplied,
+    never list any of them, or "technical indicators", as unknown.
 11. bull_case and bear_case must synthesize implications from the structured
     evidence; they do not replace structured context fields.
 12. contradictory_evidence is for genuine tension among supplied facts or
@@ -1393,15 +1536,22 @@ EXPECTATIONS / PRICED-IN
 
 RESEARCH STATUS / QUALITY
 16. COMPLETE means the supplied evidence is sufficient for the requested
-    research assessment and no material additional research is required.
-17. PARTIAL means useful analysis is possible but material evidence remains
-    missing.
+    research assessment and no material as-of fact is missing from unknowns.
+    forward_uncertainties do not prevent COMPLETE.
+17. PARTIAL means useful analysis is possible but a material as-of fact
+    listed in unknowns remains missing.
 18. INSUFFICIENT_EVIDENCE means evidence is too weak to form a useful research
     assessment.
 19. LOW evidence quality plus material unknowns should normally be PARTIAL or
     INSUFFICIENT_EVIDENCE, not COMPLETE.
 20. requires_additional_research must be true for INSUFFICIENT_EVIDENCE.
     COMPLETE must not require additional research.
+20b. research_confidence (0.0-1.0) is your confidence that this assessment
+    correctly characterises the opportunity from the supplied evidence, not
+    the probability that a trade succeeds. Anchors: 0.2 weak or conflicting
+    evidence; 0.5 mixed evidence; 0.7 clear evidence with material
+    uncertainty; 0.85 or more broad, consistent evidence. Never 0.0 when the
+    evidence supports a useful assessment.
 
 DECISION BOUNDARY
 21. Do not recommend LONG, SHORT, BUY, SELL, position size, entry, stop or
@@ -1416,7 +1566,14 @@ Before returning, perform this silent coverage check:
 - If those developments provide a plausible evidence-supported mechanism for
   changing expectations or fundamentals, catalyst_assessment must be
   populated.
+- If analyst evidence supplies current price and explicit price targets,
+  expectations_assessment must not be UNKNOWN; classify priced-in state only
+  from those supplied comparisons.
+- Preserve supplied numeric magnitudes and units exactly. Never shift a
+  decimal place or silently rescale a fundamental value.
 - Remove unknowns that contradict facts already present in supplied evidence.
+- Every unknowns item is missing as-of data; every forward_uncertainties item
+  is a future outcome.
 """
 
     @staticmethod

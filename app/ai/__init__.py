@@ -93,6 +93,9 @@ from app.ai.evidence_provider import (
 )
 
 from app.ai.news_evidence_provider import YahooNewsEvidenceProvider
+from app.ai.analyst_evidence_provider import YahooAnalystEvidenceProvider
+from app.ai.fundamental_evidence_provider import YahooFundamentalEvidenceProvider
+from app.ai.technical_evidence_adapter import CanonicalTechnicalEvidenceAdapter
 
 from app.ai.news_relevance import (
     NEWS_RELEVANCE_PROMPT_VERSION,

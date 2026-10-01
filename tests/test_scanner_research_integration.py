@@ -17,6 +17,7 @@ from app.scanner.research_integration import (
     build_market_scan,
     build_opportunity_score,
     build_research_hypotheses,
+    hypothesis_direction,
     integration_run_id,
     load_watch_universe_report,
     materialize_trade_opportunity,
@@ -116,6 +117,17 @@ def score(hypothesis, research_value, **overrides):
         requires_additional_research=False,
         portfolio_snapshot_id="snap-001",
     )
+    direction = hypothesis_direction(hypothesis.kind)
+    if direction is not None:
+        data["metadata"] = {"scoring_diagnostics": {"direction": {
+            "direction": direction.value,
+            "direction_source": "HYPOTHESIS",
+            "policy_version": "ai-8c3-directional-scoring-v3",
+            "company_assessment": {"sources": {
+                "fundamental": "SHARED_COMPANY_ASSESSMENT",
+                "expectations": "SHARED_COMPANY_ASSESSMENT",
+            }},
+        }}}
     data.update(overrides)
     return OpportunityScore(**data)
 
@@ -163,7 +175,11 @@ def test_monitoring_research_never_materializes_opportunity():
     assert link is None
 
 
-def test_long_and_short_materialization_preserve_direction_and_provenance():
+def test_long_and_short_materialization_preserve_direction_and_provenance(monkeypatch):
+    # Exercises the SHORT path as it will run once AI-8C.3-R2.2 re-enables it.
+    import app.scanner.research_integration as integration
+
+    monkeypatch.setattr(integration, "SHORT_MATERIALIZATION_ENABLED", True)
     hypotheses = build_research_hypotheses(universe(), created_at=NOW)[:2]
     results = []
     for hypothesis in hypotheses:

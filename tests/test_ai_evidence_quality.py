@@ -101,7 +101,8 @@ def test_single_source_is_penalized_and_warned():
 def test_stale_evidence_cannot_be_high_quality():
     a = EvidenceQualityEvaluator().evaluate([
         item("A", EvidenceKind.MARKET, source_id="S1", age_days=120),
-        item("B", EvidenceKind.FUNDAMENTAL, source_id="S2", age_days=120),
+        # AI-8C.2-R3: fundamentals follow the 135-day reporting window.
+        item("B", EvidenceKind.FUNDAMENTAL, source_id="S2", age_days=150),
         item("C", EvidenceKind.ANALYST, source_id="S3", age_days=120),
     ], as_of=NOW)
     assert a.quality != EvidenceQuality.HIGH
@@ -138,6 +139,52 @@ def test_all_research_dimensions_can_be_represented():
 
 def test_policy_metadata_makes_quality_coverage_separation_explicit():
     a = EvidenceQualityEvaluator().evaluate([item("M", EvidenceKind.MARKET)], as_of=NOW)
-    assert a.metadata["policy"] == "evidence-quality-v1"
+    assert a.metadata["policy"] == "evidence-quality-v2-reporting-cycle"
     assert a.metadata["quality_is_independent_of_coverage"] is True
     assert a.metadata["publisher_reliability_not_inferred"] is True
+
+
+
+# --- AI-8C.2-R3: fundamental reporting cycle ------------------------------------
+
+
+def _fresh_set(fundamental_age_days):
+    return [
+        item("T", EvidenceKind.TECHNICAL, source_id="S1", age_days=0),
+        item("N", EvidenceKind.NEWS, source_id="S2", age_days=2),
+        item("A", EvidenceKind.ANALYST, source_id="S3", age_days=0),
+        item("F", EvidenceKind.FUNDAMENTAL, source_id="S4", age_days=fundamental_age_days),
+    ]
+
+
+def test_last_reported_quarter_within_window_is_not_stale():
+    # Calendar-quarter reporter on 30 September: quarter ended 92 days ago.
+    a = EvidenceQualityEvaluator().evaluate(_fresh_set(92), as_of=NOW)
+    assert a.stale_items == 0
+    assert a.quality == EvidenceQuality.HIGH
+    assert "FUNDAMENTAL_REPORTING_PERIOD_STALE" not in a.warnings
+
+
+def test_quarter_beyond_reporting_window_is_stale():
+    a = EvidenceQualityEvaluator().evaluate(_fresh_set(136), as_of=NOW)
+    assert a.stale_items == 1
+    assert a.quality != EvidenceQuality.HIGH
+    assert "FUNDAMENTAL_REPORTING_PERIOD_STALE" in a.warnings
+
+
+def test_recently_reported_quarter_counts_as_fully_fresh():
+    recent = EvidenceQualityEvaluator().evaluate(_fresh_set(30), as_of=NOW)
+    older = EvidenceQualityEvaluator().evaluate(_fresh_set(92), as_of=NOW)
+    assert recent.freshness_score > older.freshness_score
+
+
+def test_non_fundamental_evidence_keeps_the_90_day_rule():
+    a = EvidenceQualityEvaluator().evaluate([
+        item("M", EvidenceKind.MARKET, source_id="S1", age_days=100),
+    ], as_of=NOW)
+    assert a.stale_items == 1
+
+
+def test_reporting_window_is_recorded():
+    a = EvidenceQualityEvaluator().evaluate(_fresh_set(92), as_of=NOW)
+    assert a.metadata["fundamental_reporting_window_days"] == 135

@@ -65,6 +65,9 @@ class OpportunityResearch(AIModel):
     key_risks: list[str] = Field(default_factory=list)
     contradictory_evidence: list[str] = Field(default_factory=list)
     unknowns: list[str] = Field(default_factory=list)
+    # AI-8C.2-R1: future outcomes no as-of evidence can establish. Unlike
+    # unknowns (missing as-of facts), they do not by themselves block COMPLETE.
+    forward_uncertainties: list[str] = Field(default_factory=list)
 
     evidence_quality: EvidenceQuality
     research_confidence: float = Field(ge=0.0, le=1.0)
@@ -111,6 +114,7 @@ class OpportunityResearch(AIModel):
         "key_risks",
         "contradictory_evidence",
         "unknowns",
+        "forward_uncertainties",
         "evidence_ids",
         "inference_ids",
     )

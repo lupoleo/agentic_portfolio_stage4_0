@@ -8,13 +8,19 @@ import json
 from typing import Any, Callable
 
 from app.ai.evidence_aggregator import EvidenceAggregator
-from app.ai.evidence_provider import EvidenceRequest
+from app.ai.evidence_provider import (
+    EvidenceFetchResult,
+    EvidenceFetchStatus,
+    EvidenceRequest,
+)
 from app.ai.opportunity_score_models import OpportunityScoringProfile
+from app.ai.technical_evidence_adapter import CanonicalTechnicalEvidenceAdapter
 from app.scanner.research_integration import (
     build_market_scan,
     build_opportunity_score,
     build_research_hypotheses,
     excluded_member_id,
+    hypothesis_direction,
     integration_run_id,
     member_exclusion_reason,
     materialize_trade_opportunity,
@@ -30,6 +36,63 @@ from app.scanner.research_integration_contracts import (
     ScannerResearchIntegrationPolicy,
     ScannerResearchRun,
 )
+
+
+_TERMINAL_OUTCOME_STATUSES = frozenset({
+    HypothesisOutcomeStatus.RESEARCHED,
+    HypothesisOutcomeStatus.OPPORTUNITY_CREATED,
+    HypothesisOutcomeStatus.EXCLUDED,
+})
+
+
+def _select_pending_hypotheses(
+    hypotheses: tuple[ResearchHypothesis, ...],
+    outcomes: tuple[ResearchOutcome, ...] | list[ResearchOutcome],
+    max_hypotheses: int | None,
+) -> tuple[ResearchHypothesis, ...]:
+    """Select pending work without allowing monitors to starve candidates."""
+    terminal_ids = {
+        outcome.hypothesis_id
+        for outcome in outcomes
+        if outcome.status in _TERMINAL_OUTCOME_STATUSES
+    }
+    pending = tuple(
+        hypothesis
+        for hypothesis in hypotheses
+        if hypothesis.hypothesis_id not in terminal_ids
+    )
+
+    if max_hypotheses is None:
+        return pending
+
+    directional_kinds = {
+        ResearchHypothesisKind.NEW_LONG,
+        ResearchHypothesisKind.NEW_SHORT,
+    }
+
+    directional = tuple(
+        hypothesis
+        for hypothesis in pending
+        if getattr(
+            hypothesis,
+            "kind",
+            ResearchHypothesisKind.PORTFOLIO_MONITOR,
+        )
+        in directional_kinds
+    )
+    monitoring = tuple(
+        hypothesis
+        for hypothesis in pending
+        if getattr(
+            hypothesis,
+            "kind",
+            ResearchHypothesisKind.PORTFOLIO_MONITOR,
+        )
+        not in directional_kinds
+    )
+
+    scheduled = directional + monitoring
+    return scheduled[:max_hypotheses]
 
 
 def _fingerprint(value: Any) -> str:
@@ -52,8 +115,11 @@ class ScannerResearchIntegrationService:
         scoring_service,
         market_provider,
         news_provider,
+        fundamental_provider=None,
+        analyst_provider=None,
         evidence_aggregator: EvidenceAggregator | None = None,
         canonical_technical_loader: Callable[[str], Any] | None = None,
+        technical_evidence_adapter: CanonicalTechnicalEvidenceAdapter | None = None,
         policy: ScannerResearchIntegrationPolicy | None = None,
     ) -> None:
         self.stage3_store = stage3_store
@@ -62,8 +128,18 @@ class ScannerResearchIntegrationService:
         self.scoring_service = scoring_service
         self.market_provider = market_provider
         self.news_provider = news_provider
+        self.fundamental_provider = fundamental_provider
+        self.analyst_provider = analyst_provider
         self.evidence_aggregator = evidence_aggregator or EvidenceAggregator()
         self.canonical_technical_loader = canonical_technical_loader
+        self.technical_evidence_adapter = (
+            technical_evidence_adapter
+            if technical_evidence_adapter is not None
+            else (
+                CanonicalTechnicalEvidenceAdapter()
+                if canonical_technical_loader is not None else None
+            )
+        )
         self.policy = policy or ScannerResearchIntegrationPolicy()
 
     def run(
@@ -84,10 +160,6 @@ class ScannerResearchIntegrationService:
         hypotheses = build_research_hypotheses(
             universe, policy=self.policy, created_at=now,
         )
-        selected_hypotheses = (
-            hypotheses[:max_hypotheses]
-            if max_hypotheses is not None else hypotheses
-        )
         excluded_members = tuple(
             (member, member_exclusion_reason(member))
             for member in universe.members
@@ -104,6 +176,12 @@ class ScannerResearchIntegrationService:
         prior = self.integration_store.get_run(run_id)
         if prior is not None and prior.watch_universe_fingerprint != universe.fingerprint:
             raise ValueError("resume fingerprint differs from persisted integration run")
+        prior_outcomes = self.integration_store.list_outcomes(run_id)
+        selected_hypotheses = _select_pending_hypotheses(
+            hypotheses,
+            prior_outcomes,
+            max_hypotheses,
+        )
         all_work_ids = tuple(value.hypothesis_id for value in hypotheses) + tuple(
             excluded_member_id(universe, member, self.policy)
             for member, _ in excluded_members
@@ -178,11 +256,7 @@ class ScannerResearchIntegrationService:
                 )
 
         outcomes = self.integration_store.list_outcomes(run_id)
-        terminal_statuses = {
-            HypothesisOutcomeStatus.RESEARCHED,
-            HypothesisOutcomeStatus.OPPORTUNITY_CREATED,
-            HypothesisOutcomeStatus.EXCLUDED,
-        }
+        terminal_statuses = _TERMINAL_OUTCOME_STATUSES
         complete_ids = tuple(sorted(
             value.hypothesis_id
             for value in outcomes
@@ -214,22 +288,58 @@ class ScannerResearchIntegrationService:
         return final
 
     def _process(self, hypothesis, universe, now) -> None:
+        evidence_request = EvidenceRequest(
+            ticker=hypothesis.ticker,
+            as_of=universe.as_of,
+            max_items=max(
+                self.policy.max_market_items,
+                self.policy.max_news_items,
+            ),
+            metadata={
+                "integration_run_id": hypothesis.integration_run_id,
+                "hypothesis_id": hypothesis.hypothesis_id,
+            },
+        )
         requests = (
             (self.market_provider, self.policy.max_market_items),
             (self.news_provider, self.policy.max_news_items),
         )
         results = [
-            provider.fetch(EvidenceRequest(
-                ticker=hypothesis.ticker,
-                as_of=universe.as_of,
-                max_items=max_items,
-                metadata={
-                    "integration_run_id": hypothesis.integration_run_id,
-                    "hypothesis_id": hypothesis.hypothesis_id,
-                },
-            ))
+            provider.fetch(evidence_request.model_copy(update={
+                "max_items": max_items,
+            }))
             for provider, max_items in requests
         ]
+        for provider in (self.fundamental_provider, self.analyst_provider):
+            if provider is not None:
+                results.append(self._fetch_optional(provider, evidence_request, now))
+
+        technical = None
+        if self.canonical_technical_loader is not None:
+            try:
+                technical = self.canonical_technical_loader(hypothesis.ticker)
+            except Exception as exc:
+                results.append(self._unavailable_result(
+                    "CANONICAL_TECHNICAL",
+                    hypothesis.ticker,
+                    now,
+                    exc,
+                ))
+            else:
+                if self.technical_evidence_adapter is not None:
+                    try:
+                        results.append(self.technical_evidence_adapter.adapt(
+                            evidence_request,
+                            technical,
+                            fetched_at=universe.as_of,
+                        ))
+                    except Exception as exc:
+                        results.append(self._unavailable_result(
+                            self.technical_evidence_adapter.provider_name,
+                            hypothesis.ticker,
+                            now,
+                            exc,
+                        ))
         aggregated = self.evidence_aggregator.aggregate(
             hypothesis.ticker, results, now=now,
         )
@@ -296,15 +406,13 @@ class ScannerResearchIntegrationService:
         coverage_score = research_result.evidence_quality_report.get("coverage_score")
         if coverage_score is None:
             raise ValueError("Research result has no evidence coverage score")
-        technical = (
-            self.canonical_technical_loader(hypothesis.ticker)
-            if self.canonical_technical_loader is not None else None
-        )
         scoring_result = self.scoring_service.score(
             research,
             evidence_coverage_score=float(coverage_score),
             scoring_profile=OpportunityScoringProfile.STANDARD,
             canonical_technical_input=technical,
+            direction=hypothesis_direction(hypothesis.kind),
+            company_evidence=list(aggregated.evidence),
         )
         score = build_opportunity_score(
             hypothesis, research, scoring_result,
@@ -331,6 +439,32 @@ class ScannerResearchIntegrationService:
             opportunity_score_id=score.opportunity_score_id,
             opportunity_id=opportunity.opportunity_id if opportunity else None,
             diagnostics=(decision.message,),
+        )
+
+    @staticmethod
+    def _fetch_optional(provider, request, now) -> EvidenceFetchResult:
+        try:
+            return provider.fetch(request)
+        except Exception as exc:
+            return ScannerResearchIntegrationService._unavailable_result(
+                provider.provider_name,
+                request.ticker,
+                now,
+                exc,
+            )
+
+    @staticmethod
+    def _unavailable_result(provider, ticker, now, exc) -> EvidenceFetchResult:
+        return EvidenceFetchResult(
+            provider=provider,
+            ticker=ticker,
+            status=EvidenceFetchStatus.PARTIAL,
+            items=[],
+            warnings=[
+                f"{provider} unavailable: {type(exc).__name__}: {str(exc)[:300]}"
+            ],
+            fetched_at=now,
+            metadata={"failure_isolated": True},
         )
 
     def _save_outcome(
