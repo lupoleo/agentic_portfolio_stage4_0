@@ -8,9 +8,12 @@
 | Status | ACTIVE |
 | Architecture baseline | `92b9518bd9d45ff197efd9d3b98d4e08d277c9e6` |
 | Baseline date | 2026-09-23 |
-| Last closed checkpoint | E2E-S4.0A.3 — Research Evidence Completion Bridge |
-| Active checkpoint | E2E-S4.0A — First Complete E2E Target — LIVE COMPLETION IN PROGRESS |
-| Regression baseline | 1767 tests passed; 162 subtests passed (canonical `tests/` collection; the former 1620 counted 18 duplicates) |
+| Last update | 2026-10-01 — branch `e2e-s4.0a-validation-harness` |
+| Last closed checkpoint | E2E-S4.0A.3 — Research Evidence Completion Bridge; contract revisions AI-8C.2-R1–R3 and AI-8C.3-R1–R2.2 accepted live (§24) |
+| Active checkpoint | E2E-S4.0A — First Complete E2E Target — chain complete live; first opportunity pending the score gate (§26) |
+| Measurement | E2E-S4.0B — Shadow Ledger — IMPLEMENTED, collecting outcome evidence (§25) |
+| Validation | `scripts/Invoke-Stage4Validation.ps1`; CI `offline-regression` (§23) |
+| Regression baseline | 1767 tests and 162 subtests (Linux); 1766 passed + 1 POSIX-only skip on Windows. Canonical `tests/` collection via `pytest.ini`; the former 1620 counted 18 duplicates |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -128,11 +131,16 @@ flowchart TD
     C --> G["Candidate and Watch-Set Assembly"]
     F --> G
     G --> H["Research and Evidence"]
-    H --> I["Opportunity Scoring"]
+    H --> CA["Shared company assessment (direction-free, per listing)"]
+    H --> I["Directional Opportunity Scoring (LONG / SHORT)"]
+    CA --> I
+    I --> SL["Shadow ledger (outcome measurement, no effect on decisions)"]
 ```
 
 Opportunity Scoring may produce zero, one or many persisted opportunities.
-Only an explicit operator choice opens the downstream decision path.
+Every scored directional hypothesis, selected or not, is also recorded in the
+shadow ledger for outcome measurement (§25). Only an explicit operator choice
+opens the downstream decision path.
 
 ```mermaid
 flowchart TD
@@ -371,6 +379,26 @@ An unavailable evidence provider must not erase the candidate. It produces an
 explicit degraded evidence state that downstream policy can accept, penalize or
 block.
 
+### 8.1 Research completeness (AI-8C.2 revisions, §24)
+
+- `unknowns` hold facts that exist at the evidence date but were not supplied;
+  `forward_uncertainties` hold future outcomes and never by themselves block
+  `COMPLETE`. A deterministic guard reclassifies forward items that read as
+  missing data.
+- A comparison or finer granularity of a supplied measure (peer or sector
+  valuation with P/E or analyst targets supplied, guidance with analyst
+  estimates supplied, quarterly or trend detail with trailing measures
+  supplied) is a recorded context gap, not a blocking gap.
+- An unknown claiming that supplied technical, fundamental or analyst facts
+  are missing contradicts the evidence and is removed deterministically.
+- `research_confidence` is defined with anchors; an incoherent value triggers a
+  field-scoped repair; a percent-scale value is normalized.
+- Fundamental evidence freshness follows the reporting cycle (fresh up to 45
+  days after the period end, current up to 135, stale beyond); bank and
+  insurance fundamentals omit metrics that are not meaningful for them.
+- Contract `ai-8c2-research-v3-context-gaps`, prompt
+  `opportunity-research-v1.5-context-gaps-confidence`.
+
 ---
 
 ## 9. Opportunity Scoring
@@ -393,7 +421,33 @@ Scoring ranks and explains opportunities. It does not size trades, choose a
 broker instrument or mutate the portfolio.
 
 Research and Opportunity Scoring contracts accepted under AI-8C.2 and AI-8C.3
-remain frozen unless a dedicated change milestone reopens them.
+remain frozen unless a dedicated change milestone reopens them. The revisions
+made during the E2E-S4.0A live completion are listed in §24.
+
+### 9.1 Directional scoring (AI-8C.3 revisions, §24)
+
+- Every component measures support for the hypothesis direction. The
+  deterministic technical base mirrors its directional contribution for SHORT
+  and keeps the RSI-extreme penalty as a risk; the model may adjust it by at
+  most 10 points.
+- FUNDAMENTAL and EXPECTATIONS describe the company, not the trade. They come
+  from one shared, direction-free company assessment per listing (FUNDAMENTAL
+  and ANALYST evidence only, cached by content-addressed evidence IDs) and are
+  mirrored in software for SHORT. THESIS and CATALYST are scored for the
+  direction.
+- A directional hypothesis materializes only with a score computed for its own
+  direction under policy `ai-8c3-directional-scoring-v3`; a SHORT additionally
+  requires its company-frame components from the shared assessment. Otherwise
+  the outcome is `SCORE_DIRECTION_MISMATCH`. A code-level switch can suspend
+  SHORT materialization (`SHORT_MATERIALIZATION_SUSPENDED`); it is enabled.
+- The materialization gates are unchanged: `COMPLETE` research,
+  confidence-adjusted score ≥ 60, score confidence ≥ 0.40.
+
+### 9.2 Outcome evidence
+
+The gates were set without outcome data. The shadow ledger (§25) records every
+scored directional hypothesis and measures its directional and index-relative
+return after 5, 10 and 20 sessions. Threshold changes require that evidence.
 
 ---
 
@@ -606,8 +660,8 @@ meaning of a policy decision.
 | Area | Checkpoint | Status at baseline |
 | --- | --- | --- |
 | Quantitative portfolio foundation | Stage 2.5 | CLOSED / FROZEN |
-| Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN — AI-8C.2-R1 (forward uncertainties) ACCEPTED 2026-09-30; AI-8C.2-R2 (context gaps, confidence, bank fundamentals) ACCEPTED 2026-09-30; AI-8C.2-R3 (fundamental reporting cycle) ACCEPTED 2026-09-30 |
-| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — AI-8C.3-R1 (canonical technical volatility) ACCEPTED 2026-09-30; AI-8C.3-R2 (directional scoring) safety criteria ACCEPTED 2026-09-30, AI-8C.3-R2.1 (company-frame fundamental/expectations) safety met, consistency not met; SHORT materialization suspended; AI-8C.3-R2.2 (shared company assessment) ACCEPTED 2026-09-30; SHORT materialization re-enabled |
+| Research and evidence contracts | AI-8C.2 | CLOSED / FROZEN — revised by AI-8C.2-R1, R2, R3 (ACCEPTED 2026-09-30, §24) |
+| Opportunity scoring contracts | AI-8C.3 | CLOSED / FROZEN — revised by AI-8C.3-R1, R2, R2.1, R2.2 (ACCEPTED 2026-09-30/2026-10-01, §24); SHORT materialization enabled |
 | Portfolio Filter | PF-1A through PF-1H | CLOSED / FROZEN |
 | Exchange universe and provider policy | E2E-S2.1A through S2.1J | CLOSED |
 | Instrument taxonomy | E2E-S2.2A | CLOSED |
@@ -618,8 +672,10 @@ meaning of a policy decision.
 | Scanner-to-Research integration | E2E-S2.2F | CLOSED |
 | Full selected-opportunity dry run | E2E-S2.2G | CLOSED |
 | Portfolio instrument coverage and leveraged-product risk adapters | E2E-S2.2H | CLOSED |
-| Stage 4.0 First Complete E2E Target | E2E-S4.0A | APPROVED / IN PROGRESS |
+| Stage 4.0 First Complete E2E Target | E2E-S4.0A | IN PROGRESS — chain complete live; first opportunity pending the score gate |
 | Research evidence completion bridge | E2E-S4.0A.3 | CLOSED |
+| Validation harness and CI | E2E-S4.0A (tooling) | IN USE (§23) |
+| Shadow ledger | E2E-S4.0B | IMPLEMENTED, collecting evidence (§25) |
 
 “Closed” means accepted by its checkpoint evidence. It does not mean that
 future providers or product classes are automatically supported.
@@ -814,102 +870,6 @@ a future evidence-supported S2.2F opportunity. It must reuse the closed S2.2G
 contract and remain manual-execution only.
 ---
 
-## 21. Stage 4.0 first complete E2E target
-
-The first complete Stage 4.0 dry run should demonstrate:
-
-1. one authoritative Fineco snapshot;
-2. one accepted production Scanner universe;
-3. one persisted Research Watch Universe;
-4. research and scoring for multiple members;
-5. multiple persisted opportunities where evidence supports them;
-6. one explicit operator selection;
-7. one frozen Portfolio Filter result;
-8. one deterministic instrument and sizing decision;
-9. one TradeProposal;
-10. one before/after portfolio simulation;
-11. one CIO decision;
-12. one execution plan or explicit rejection;
-13. no broker mutation;
-14. a complete replayable audit chain.
-
-The dry run succeeds even when the final decision is rejection, provided the
-rejection is correct, explicit and reproducible.
-
----
-
-## 22. Non-goals
-
-Stage 4.0 does not currently include:
-
-- autonomous broker execution;
-- hidden order routing;
-- batch capital allocation across many opportunities;
-- joint multi-opportunity optimization;
-- silent inclusion of unsupported instrument classes;
-- synthetic replacement of missing market data;
-- automatic IPO inference from short history;
-- LLM-calculated final financial metrics;
-- mutation of a Fineco-derived real snapshot;
-- background policy changes without versioned acceptance.
-
-These capabilities require separate architecture decisions and checkpoints.
-
----
-
-## 23. Documentation governance
-
-The document hierarchy is:
-
-1. `STAGE_4_0_ARCHITECTURE.md` — current end-to-end architecture;
-2. accepted E2E, AI and PF checkpoint documents — detailed frozen contracts
-   and evidence;
-3. `STAGE_3_0_ARCHITECTURE.md` — historical architecture baseline;
-4. `CIO_DEMO_ROADMAP.md` — historical demo and implementation roadmap.
-
-Future checkpoint documents should link back to this architecture and state
-whether they:
-
-- implement an existing contract;
-- refine an explicitly open boundary;
-- or reopen a frozen contract.
-
-Every Stage 4.0 checkpoint must update this file before closure. A checkpoint
-is not `CLOSED` until the architecture update has passed validation and has
-been committed and pushed with, or immediately after, the implementation.
-
-Any reopened frozen contract requires:
-
-- an explicit reason;
-- impact analysis;
-- migration strategy;
-- updated tests;
-- new acceptance evidence;
-- a version change visible in persisted outputs.
-
----
-
-## 24. Definition of architectural completion
-
-Stage 4.0 is architecturally complete when:
-
-- every boundary in the canonical E2E flow has a versioned data contract;
-- the Scanner and Portfolio Watch Set feed one auditable Research Watch
-  Universe;
-- research and scoring can produce persisted opportunities for LONG and SHORT;
-- exactly one opportunity is selected per downstream run;
-- the frozen Portfolio Filter is integrated without semantic drift;
-- proposal, simulation, CIO decision and execution planning are replayable;
-- provider failures and unknowns remain explicit;
-- recent listings use reviewed references and a distinct maturity route;
-- real, simulated and proposed states never collapse into one another;
-- the full workflow can be demonstrated without automatic execution;
-- the final report links every decision to its source snapshot, evidence,
-  policies and calculations.
-
-Until those conditions are met, Stage 4.0 remains an active integration stage,
-even when individual checkpoints are closed.
-
 ## 21. Closed corrective checkpoint: E2E-S2.2H
 
 E2E-S2.2H — Portfolio Instrument Coverage & Leveraged-Product Risk Adapters
@@ -947,6 +907,8 @@ instrument-identity or market-data mapping gap.
 Stage 4.0 First Complete E2E Target is restored as the next proposed
 checkpoint. Its contract must be approved before implementation. Execution
 remains manual-only and no automatic broker action is authorized.
+
+---
 
 ## 22. Active checkpoint: E2E-S4.0A
 
@@ -1006,7 +968,7 @@ and S2.2B-D reports are explicit and fingerprinted; no latest lookup is
 allowed. The runtime delegates to S2.2E, S2.2F and S2.2G and retains the exact
 watch report path for restart-safe resume.
 
-### 22.7 Corrective sub-checkpoint: E2E-S4.0A.1
+### 22.6 Corrective sub-checkpoint: E2E-S4.0A.1
 
 Real directional validation on A2A and SAP completed symmetrically and failed
 closed because the available research evidence was incomplete. The approved
@@ -1017,7 +979,7 @@ thresholds, isolates portfolio monitoring from candidate discovery, limits
 LIVE work to two listings per wave, five waves and one transient retry, and
 persists every wave as append-only evidence. Implementation is in progress.
 
-### 22.8 Bounded replenishment orchestration
+### 22.7 Bounded replenishment orchestration
 
 The second E2E-S4.0A.1 implementation block adds a resumable outer orchestration
 service. It consumes the deterministic frontier planner, executes at most two
@@ -1028,7 +990,7 @@ broker-order, portfolio-mutation and automatic-execution counters remain zero.
 The remaining block connects this tested control loop to LIVE history acquisition
 and child S4.0A runs.
 
-### 22.9 LIVE candidate-replenishment adapter
+### 22.8 LIVE candidate-replenishment adapter
 
 The third E2E-S4.0A.1 implementation block connects the bounded orchestration
 loop to existing S2.2D history acquisition, S2.2E watch-universe assembly,
@@ -1040,7 +1002,7 @@ CACHE_ONLY cannot invoke providers, LIVE transient failures receive one retry,
 and no execution or portfolio mutation is authorized. Real acceptance and full
 regression are pending.
 
-### E2E-S4.0A.1 Block 3A — Acquisition-Capable Frontier
+### 22.9 E2E-S4.0A.1 Block 3A — Acquisition-Capable Frontier
 
 The first LIVE replenishment attempt terminated before wave creation because
 the planner consumed the non-canonical `resolved_symbol` field while the
@@ -1052,7 +1014,7 @@ only after that measured frontier reaches zero. Selected listings continue
 through the existing LIVE S2.2D acquisition and quality gates before research.
 
 
-### E2E-S4.0A.1 Block 3B — Terminal Review Routing
+### 22.10 E2E-S4.0A.1 Block 3B — Terminal Review Routing
 
 The replenishment runtime now distinguishes completed deterministic history
 review routes from transient processing failures. `REVIEW_REQUIRED` and
@@ -1068,7 +1030,7 @@ and automatic execution. Implementation is complete; live validation on a
 new immutable replenishment session is pending.
 
 
-### E2E-S4.0A.1 Block 3C — Verification Clock Alignment
+### 22.11 E2E-S4.0A.1 Block 3C — Verification Clock Alignment
 
 The acquisition-capable frontier now binds Yahoo identity verification,
 availability evidence, history snapshot construction and quality evaluation
@@ -1083,7 +1045,7 @@ identity, freshness, structure, liquidity and maturity gates remain intact.
 Implementation is complete; a new immutable LIVE replenishment session must
 provide acceptance evidence before S4.0A.1 can close.
 
-### E2E-S4.0A.1 Block 3D — Portfolio-Overlap-Safe Frontier
+### 22.12 E2E-S4.0A.1 Block 3D — Portfolio-Overlap-Safe Frontier
 
 Clock-aligned LIVE evidence showed that an acquisition frontier must remain
 disjoint from the root Portfolio Watch Set. `BIT:BZU` was already represented
@@ -1104,7 +1066,7 @@ research/scoring and all downstream risk and execution contracts remain
 unchanged. A new immutable LIVE session must advance beyond the overlapping
 BZU/CPR identities before this block can be accepted.
 
-### E2E-S4.0A.1 Block 3E — Retry-Exhausted Candidate Quarantine
+### 22.13 E2E-S4.0A.1 Block 3E — Retry-Exhausted Candidate Quarantine
 
 The Block 3D LIVE evidence distinguished two failure classes. BMPS/BPE
 recovered on the single approved retry. ENEL/ENI did not: ENI SHORT first
@@ -1126,7 +1088,7 @@ until a selectable `TradeOpportunity` exists, while preventing one
 candidate-local provider failure from terminating the entire universe search.
 No threshold is relaxed and no broker or portfolio side effect is authorized.
 
-### E2E-S4.0A.2 — News-Sensitive Acquisition Frontier
+### 22.14 E2E-S4.0A.2 — News-Sensitive Acquisition Frontier
 
 The non-semantic alphabetical/catalogue traversal exposed by LIVE bounded
 replenishment is replaced by a versioned acquisition-priority layer. This is
@@ -1163,7 +1125,7 @@ snapshot replay, a NASDAQ `STANDARD` history route with valid EUR-converted
 turnover evidence, complete regression and zero broker, portfolio or
 automatic-execution side effects.
 
-### E2E-S4.0A.3 — Research Evidence Completion Bridge
+### 22.15 E2E-S4.0A.3 — Research Evidence Completion Bridge
 
 Live S4.0A.1/A.2 evidence proved that the replenishment and acquisition
 frontier work, but directional hypotheses remained `RESEARCH_NOT_COMPLETE`
@@ -1217,7 +1179,55 @@ passed and the complete regression closed with 1,620 tests and 162 subtests.
 E2E-S4.0A remains active and returns to bounded replenishment for the next
 candidate; no business threshold or execution policy was relaxed.
 
-### AI-8C.3-R1 — Canonical Technical Volatility (reopened frozen contract)
+---
+
+## 23. Validation harness
+
+`scripts/Invoke-Stage4Validation.ps1` (VS Code / PowerShell) and
+`python -m tools.stage4_validation` validate the system at three levels
+without touching the production state database:
+
+| Level | What runs | Network | Writes |
+| --- | --- | --- | --- |
+| `Unit` | full offline regression | none | none |
+| `Replay` | `CACHE_ONLY` resume of a persisted root S4.0A run, sockets blocked | none | sandbox copy |
+| `Live` | real bounded candidate replenishment (Yahoo + local Ollama) | Yahoo, Ollama | sandbox copy; shadow ledger export |
+
+Every level verifies zero broker orders, portfolio mutations and automatic
+executions and an unchanged SHA-256 of `data/state/portfolio_cio.db`. The
+`Live` level attaches a research inspection (evidence versions and kinds,
+blocking and context gaps, confidence repairs, directional pairs, company
+assessment sources, processing-failure diagnostics) and the acceptance checks
+of every contract revision. The same offline regression runs in GitHub Actions
+(`offline-regression`, Windows and Linux) on every push. Details:
+`docs/E2E-S4.0A-VALIDATION-HARNESS.md`.
+
+---
+
+## 24. Contract revisions during the E2E-S4.0A live completion
+
+Live validation on the operator machine showed that research almost never
+reached `COMPLETE` (189 of 191 records were `PARTIAL`) and that Opportunity
+Scoring was direction-blind. The frozen AI-8C.2 and AI-8C.3 contracts were
+reopened explicitly, one revision at a time, each with reason, impact
+analysis, tests, versioned outputs and live acceptance evidence recorded in
+its own document under `docs/`. No threshold (60 / 0.40) was changed and
+software never promotes research to `COMPLETE`.
+
+| Revision | Subject | Status | Document |
+| --- | --- | --- | --- |
+| AI-8C.3-R1 | Stage-2 volatility in the canonical technical input | ACCEPTED 2026-09-30 | `docs/AI-8C.3-R1-CANONICAL-TECHNICAL-VOLATILITY.md` |
+| AI-8C.3-R2 | Direction-aware scoring, fail-closed direction gate | ACCEPTED 2026-09-30 | `docs/AI-8C.3-R2-DIRECTIONAL-SCORING.md` |
+| AI-8C.3-R2.1 | Company-frame fundamental/expectations mirrored for SHORT | Safety met; consistency superseded by R2.2 | `docs/AI-8C.3-R2.1-COMPANY-FRAME-SCORING.md` |
+| AI-8C.2-R1 | Missing as-of facts versus forward uncertainties | ACCEPTED 2026-09-30 | `docs/AI-8C.2-R1-FORWARD-UNCERTAINTIES.md` |
+| AI-8C.2-R2 | Context gaps, supplied facts, research confidence, bank fundamentals | ACCEPTED 2026-09-30 | `docs/AI-8C.2-R2-CONTEXT-GAPS-CONFIDENCE.md` |
+| AI-8C.2-R3 | Fundamental freshness follows the reporting cycle | ACCEPTED 2026-09-30 | `docs/AI-8C.2-R3-FUNDAMENTAL-REPORTING-CYCLE.md` |
+| AI-8C.3-R2.2 | Shared, direction-free company assessment; SHORT re-enabled; model-output tolerance | ACCEPTED 2026-09-30 / 2026-10-01 | `docs/AI-8C.3-R2.2-SHARED-COMPANY-ASSESSMENT.md` |
+
+Subsections below are in chronological order and keep the original
+acceptance notes.
+
+### 24.1 AI-8C.3-R1 — Canonical Technical Volatility (reopened frozen contract)
 
 Live S4.0A evidence showed that research almost never reaches `COMPLETE`:
 189 of 191 persisted research records are `PARTIAL`. One structural cause was
@@ -1256,7 +1266,7 @@ score difference 2.86 points). Direction is applied only after eligibility.
 Today this is masked because no research reaches `COMPLETE`; any change that
 unblocks research completeness must be preceded by direction-aware scoring.
 
-### AI-8C.3-R2 — Directional Opportunity Scoring (reopened frozen contract)
+### 24.2 AI-8C.3-R2 — Directional Opportunity Scoring (reopened frozen contract)
 
 AI-8C.3-R2 reopens AI-8C.3 again to make Opportunity Scoring measure support
 for the hypothesis direction. The scanner integration passes `LONG` or `SHORT`;
@@ -1289,7 +1299,7 @@ produced the first live `COMPLETE` research and first `SCORED` score
 Proposed next: AI-8C.3-R2.1, company-frame scoring with software mirroring for
 fundamental and expectations, before AI-8C.2-R1.
 
-### AI-8C.3-R2.1 — Company-Frame Scoring for Bipolar Components
+### 24.3 AI-8C.3-R2.1 — Company-Frame Scoring for Bipolar Components
 
 Approved by the operator after the R2 live acceptance. FUNDAMENTAL and
 EXPECTATIONS are now scored by the model from the company's point of view for
@@ -1310,7 +1320,7 @@ listing. LONG materialization is unaffected. The same run scored HPE `NEW_LONG`
 at 64.7 confidence-adjusted, blocked only by a forward-looking research
 unknown, which motivates AI-8C.2-R1.
 
-### AI-8C.2-R1 — Missing As-Of Facts versus Forward Uncertainties (reopened frozen contract)
+### 24.4 AI-8C.2-R1 — Missing As-Of Facts versus Forward Uncertainties (reopened frozen contract)
 
 Research now separates `unknowns` (facts knowable at the evidence date but not
 supplied) from `forward_uncertainties` (future outcomes no present evidence
@@ -1334,7 +1344,7 @@ margins (only TTM supplied) and consensus/guidance. `research_confidence` was
 confidence-adjusted score to 50. The same run exposed and led to the fix of a
 wave-level failure on unavailable history snapshots.
 
-### AI-8C.2-R2 — Context Gaps, Supplied Facts, Research Confidence, Bank Fundamentals
+### 24.5 AI-8C.2-R2 — Context Gaps, Supplied Facts, Research Confidence, Bank Fundamentals
 
 Approved by the operator on 2026-09-30, including a policy decision: a
 comparison or finer granularity of a measure the evidence supplies (peer or
@@ -1356,7 +1366,7 @@ the system. WBD `NEW_LONG` reached the final gate (raw 61.75,
 confidence-adjusted 55.14 < 60) and UCG.MI `NEW_SHORT` was stopped by the SHORT
 suspension. Research confidence was 0.5–0.7 without repairs.
 
-### AI-8C.2-R3 — Fundamental Freshness Follows the Reporting Cycle
+### 24.6 AI-8C.2-R3 — Fundamental Freshness Follows the Reporting Cycle
 
 Fundamental evidence is dated by its last reported quarter, which a uniform
 90-day staleness rule treated as stale for weeks after every quarter end,
@@ -1372,7 +1382,7 @@ AI-8C.2-R3 live acceptance (2026-09-30): all eight research were HIGH evidence
 quality with fundamentals 92.8 days after the 30 June period end; WBD
 `NEW_LONG` reached a confidence-adjusted 58.97 but stayed `PARTIAL`.
 
-### AI-8C.3-R2.2 — Shared, Direction-Free Company Assessment
+### 24.7 AI-8C.3-R2.2 — Shared, Direction-Free Company Assessment
 
 FUNDAMENTAL and EXPECTATIONS are now scored once per listing by a
 direction-free company assessment built only from FUNDAMENTAL and ANALYST
@@ -1405,7 +1415,9 @@ score. Details in `docs/AI-8C.3-R2.2-SHARED-COMPANY-ASSESSMENT.md` §8.
 The fixes were confirmed live on 2026-10-01: zero processing failures, no
 wave retries, four of eight research `COMPLETE`, all below 60 (50.7–54.7).
 
-## E2E-S4.0B — Shadow Ledger
+---
+
+## 25. E2E-S4.0B — Shadow Ledger
 
 Approved by the operator on 2026-10-01. Every directional hypothesis with a
 confidence-adjusted score is recorded in a separate, git-ignored ledger
@@ -1417,3 +1429,109 @@ score. The ledger reads source databases read-only and has no effect on any
 portfolio, proposal, opportunity or execution contract. Its purpose is to
 provide outcome evidence before any change to the 60 / 0.40 thresholds.
 Details: `docs/E2E-S4.0B-SHADOW-LEDGER.md`.
+
+---
+
+## 26. Stage 4.0 first complete E2E target
+
+The first complete Stage 4.0 dry run should demonstrate:
+
+1. one authoritative Fineco snapshot;
+2. one accepted production Scanner universe;
+3. one persisted Research Watch Universe;
+4. research and scoring for multiple members;
+5. multiple persisted opportunities where evidence supports them;
+6. one explicit operator selection;
+7. one frozen Portfolio Filter result;
+8. one deterministic instrument and sizing decision;
+9. one TradeProposal;
+10. one before/after portfolio simulation;
+11. one CIO decision;
+12. one execution plan or explicit rejection;
+13. no broker mutation;
+14. a complete replayable audit chain.
+
+The dry run succeeds even when the final decision is rejection, provided the
+rejection is correct, explicit and reproducible.
+
+Status on 2026-10-01: the live chain runs end to end without processing
+failures; about half of the researched directional hypotheses reach
+`COMPLETE` research with HIGH evidence quality and a full score, for LONG and
+SHORT alike. None has yet passed the 60 confidence-adjusted gate (observed
+range 49–59), so no live `TradeOpportunity` has been created by the Stage 4
+chain. The shadow ledger (§25) collects outcome evidence before any threshold
+decision.
+
+---
+
+## 27. Non-goals
+
+Stage 4.0 does not currently include:
+
+- autonomous broker execution;
+- hidden order routing;
+- batch capital allocation across many opportunities;
+- joint multi-opportunity optimization;
+- silent inclusion of unsupported instrument classes;
+- synthetic replacement of missing market data;
+- automatic IPO inference from short history;
+- LLM-calculated final financial metrics;
+- mutation of a Fineco-derived real snapshot;
+- background policy changes without versioned acceptance.
+
+These capabilities require separate architecture decisions and checkpoints.
+
+---
+
+## 28. Documentation governance
+
+The document hierarchy is:
+
+1. `STAGE_4_0_ARCHITECTURE.md` — current end-to-end architecture;
+2. accepted E2E, AI and PF checkpoint documents — detailed frozen contracts
+   and evidence;
+3. `STAGE_3_0_ARCHITECTURE.md` — historical architecture baseline;
+4. `CIO_DEMO_ROADMAP.md` — historical demo and implementation roadmap.
+
+Future checkpoint documents should link back to this architecture and state
+whether they:
+
+- implement an existing contract;
+- refine an explicitly open boundary;
+- or reopen a frozen contract.
+
+Every Stage 4.0 checkpoint must update this file before closure. A checkpoint
+is not `CLOSED` until the architecture update has passed validation and has
+been committed and pushed with, or immediately after, the implementation.
+
+Any reopened frozen contract requires:
+
+- an explicit reason;
+- impact analysis;
+- migration strategy;
+- updated tests;
+- new acceptance evidence;
+- a version change visible in persisted outputs.
+
+---
+
+## 29. Definition of architectural completion
+
+Stage 4.0 is architecturally complete when:
+
+- every boundary in the canonical E2E flow has a versioned data contract;
+- the Scanner and Portfolio Watch Set feed one auditable Research Watch
+  Universe;
+- research and scoring can produce persisted opportunities for LONG and SHORT;
+- exactly one opportunity is selected per downstream run;
+- the frozen Portfolio Filter is integrated without semantic drift;
+- proposal, simulation, CIO decision and execution planning are replayable;
+- provider failures and unknowns remain explicit;
+- recent listings use reviewed references and a distinct maturity route;
+- real, simulated and proposed states never collapse into one another;
+- the full workflow can be demonstrated without automatic execution;
+- the final report links every decision to its source snapshot, evidence,
+  policies and calculations.
+
+Until those conditions are met, Stage 4.0 remains an active integration stage,
+even when individual checkpoints are closed.
