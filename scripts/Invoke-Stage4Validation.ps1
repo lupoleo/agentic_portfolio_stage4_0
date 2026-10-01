@@ -250,6 +250,9 @@ finally {
             $md.Add("- [$(if ($check.passed) { 'x' } else { ' ' })] $($check.name): $(($check.detail | ConvertTo-Json -Compress -Depth 4))")
         }
         $md.Add("- research status: $(($inspection.research_status_counts | ConvertTo-Json -Compress))")
+        foreach ($failure in @($inspection.processing_failures)) {
+            if ($failure) { $md.Add("- PROCESSING FAILURE $($failure.subject) $($failure.kind): $(@($failure.diagnostics) -join ' | ')") }
+        }
         $md.Add("- outcomes: $(($inspection.outcome_reason_counts | ConvertTo-Json -Compress))")
         foreach ($row in @($inspection.research)) {
             $md.Add("- research $($row.ticker) $($row.research_status) quality=$($row.evidence_quality) confidence=$($row.research_confidence) volatility_in_evidence=$($row.bundle_states_volatility) volatility_unknown=$($row.volatility_listed_unknown)")

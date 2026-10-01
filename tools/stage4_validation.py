@@ -832,6 +832,7 @@ def inspect_research(database: Path, since: str) -> dict[str, Any]:
             "reason": outcome.get("reason"),
             "research_id": outcome.get("research_id"),
             "opportunity_id": outcome.get("opportunity_id"),
+            "diagnostics": [str(item)[:600] for item in outcome.get("diagnostics") or []],
         }
         for outcome in outcomes
     ]
@@ -877,6 +878,11 @@ def inspect_research(database: Path, since: str) -> dict[str, Any]:
         "research_status_counts": dict(
             sorted(_count(row["research_status"] for row in research_rows).items())
         ),
+        "processing_failures": [
+            {key: row[key] for key in ("subject", "kind", "hypothesis_id", "diagnostics")}
+            for row in outcome_rows
+            if row["status"] == "FAILED"
+        ],
         "outcome_reason_counts": dict(
             sorted(_count(f"{row['status']}/{row['reason']}" for row in outcome_rows).items())
         ),

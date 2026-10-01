@@ -398,3 +398,22 @@ def test_r1_inspection_still_flags_missing_volatility_claims(tmp_path):
         research_unknowns=["Technical volatility metrics are unknown"],
     )
     assert harness.inspect_research(database, "2026-09-30T12:00:00Z")["r1_acceptance"] == "FAIL"
+
+
+def test_inspection_reports_processing_failure_diagnostics(tmp_path):
+    database = tmp_path / "state.db"
+    _inspection_db(database, adapter_version="stage4-research-technical-v2",
+                   volatility_text=True, research_unknowns=[])
+    with sqlite3.connect(database) as connection:
+        failed = {
+            "hypothesis_id": "hyp-9", "kind": "NEW_SHORT", "subject_value": "FMC",
+            "status": "FAILED", "reason": "PROCESSING_FAILED",
+            "diagnostics": ["ValueError: fundamental is SCORABLE but targeted repair returned no assessment"],
+        }
+        connection.execute("insert into scanner_research_outcomes values (?, ?)",
+                           ("2026-09-30T12:31:00Z", json.dumps(failed)))
+    result = harness.inspect_research(database, "2026-09-30T12:00:00Z")
+    assert result["processing_failures"] == [{
+        "subject": "FMC", "kind": "NEW_SHORT", "hypothesis_id": "hyp-9",
+        "diagnostics": ["ValueError: fundamental is SCORABLE but targeted repair returned no assessment"],
+    }]
