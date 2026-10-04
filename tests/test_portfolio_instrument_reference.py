@@ -43,6 +43,7 @@ def registry():
         ("IT0005686883", "FCT.MI", "SHORT"),
         ("IT0005687683", "MONC.MI", "SHORT"),
         ("IT0005687667", "BZU.MI", "SHORT"),
+        ("IT0005670135", "UCG.MI", "LONG"),  # operator review 2026-10-04
     ],
 )
 def test_reviewed_certificates_resolve_exactly(isin, symbol, direction):
