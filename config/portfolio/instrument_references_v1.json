@@ -71,6 +71,20 @@
       "reviewed_at": "2026-09-26",
       "reviewed_by": "OPERATOR",
       "evidence_kind": "FINECO_OPERATOR_SCREENSHOT"
+    },
+    {
+      "reference_id": "fineco-unicredit-long-5x-v1",
+      "isin": "IT0005670135",
+      "broker_symbol": "",
+      "market_data_symbol": "UCG.MI",
+      "market_data_method": "LEVERAGED_PROXY",
+      "economic_direction": "LONG",
+      "leverage_multiplier": 5.0,
+      "expiry_date": "2026-10-29",
+      "reviewed": true,
+      "reviewed_at": "2026-10-04",
+      "reviewed_by": "OPERATOR",
+      "evidence_kind": "FINECO_OPERATOR_SCREENSHOT"
     }
   ]
 }
