@@ -85,3 +85,19 @@ frontier aliases. Regression: 1,789 tests and 162 subtests passed.
 3. One LIVE replenishment in which the frontier ranking is `MIXED` with
    qualified listings, research bundles contain NEWS evidence, and side effects
    are zero.
+
+## 7. Live provider check and follow-up fix (2026-10-05)
+
+Operator check with the first R4 commit: AAPL 4 and MSFT 7 items
+(`SEARCH_SYMBOL`), ENI.MI 13 (`SEARCH_NAME`), but UCG.MI, BAMI.MI, SAP.DE and
+BMW.DE returned none when the name came only from Yahoo quotes. With the
+scanner's names UCG.MI (10) and SAP.DE (12) succeeded. Causes found in the
+quotes: short names are upper case and padded with a share-class letter
+("SAP SE                        I", "BAYERISCHE MOTOREN WERKE AG   S"), and the
+full legal name returns no news for BMW.
+
+Follow-up: short names drop the trailing class letter and upper-case names
+are searched in title case; listings outside the US also try their base
+symbol ("BMW", "SAP", "ENI") when the name search finds nothing relevant
+(`SEARCH_BASE_SYMBOL`); a `NO_DATA` caused by relevant items outside the
+30-day window now reports the channels too.

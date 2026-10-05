@@ -42,6 +42,14 @@ def normalize_company_name(name: str | None) -> str | None:
         return None
     text = re.sub(r"\([^)]*\)", " ", str(name))
     text = re.sub(r"\s+", " ", text).strip(" ,.-")
+    # Yahoo short names are padded and end with a share-class letter
+    # ("SAP SE                        I", "BAYERISCHE MOTOREN WERKE AG   S").
+    text = re.sub(r"\s+[A-Z]$", "", text)
+    if text.isupper() and len(text) > 4:
+        # "UNICREDIT" -> "Unicredit": Yahoo search ranks title case better.
+        text = " ".join(
+            word if len(word) <= 3 else word.capitalize() for word in text.split(" ")
+        )
     changed = True
     while changed and text:
         changed = False
@@ -203,6 +211,11 @@ class YahooNewsEvidenceProvider(EvidenceProvider):
                 items=[],
                 warnings=["News was returned but no usable items passed normalization/filtering"],
                 fetched_at=fetched_at,
+                metadata={
+                    "selection_policy_version": NEWS_SELECTION_POLICY_VERSION,
+                    "news_channels": channel_report,
+                    "relevant_outside_window": len(normalized),
+                },
             )
 
         return EvidenceFetchResult(
@@ -287,19 +300,31 @@ class YahooNewsEvidenceProvider(EvidenceProvider):
         relevant = [item for item in searched if self._is_relevant(item, aliases)]
 
         # 3. Search by company name, when the symbol found nothing relevant.
-        if not relevant and names:
-            name = names[0]
+        # Full legal names often return no news ("Bayerische Motoren Werke"),
+        # so a listing outside the US also tries its base symbol ("BMW").
+        queries = list(names[:1])
+        if (
+            "." in ticker
+            and len(base_symbol) >= 3
+            and base_symbol.isalpha()
+            and base_symbol.casefold() not in {q.casefold() for q in queries}
+        ):
+            queries.append(base_symbol)
+        for index, query in enumerate(queries):
+            if relevant:
+                break
+            key = "SEARCH_NAME" if index == 0 and names else "SEARCH_BASE_SYMBOL"
             try:
-                payload = self._search_loader(name) or {}
-                name_news = self._normalize_collection(payload.get("news"))
-                report["SEARCH_NAME"] = f"OK:{len(name_news)}"
-                for item in name_news:
-                    channels[id(item)] = "SEARCH_NAME"
+                payload = self._search_loader(query) or {}
+                found = self._normalize_collection(payload.get("news"))
+                report[key] = f"OK:{len(found)}"
+                for item in found:
+                    channels[id(item)] = key
                 relevant.extend(
-                    item for item in name_news if self._is_relevant(item, aliases)
+                    item for item in found if self._is_relevant(item, aliases)
                 )
             except Exception as exc:
-                report["SEARCH_NAME"] = f"FAILED:{type(exc).__name__}"
+                report[key] = f"FAILED:{type(exc).__name__}"
         report["SEARCH_ALIASES"] = "|".join(aliases)
         return relevant, report, channels
 

@@ -61,6 +61,10 @@ def fetch(provider, ticker, **metadata):
     ("Raymond James Financial Inc.", "Raymond James Financial"),
     ("AG", None),
     (None, None),
+    ("SAP SE                        I", "SAP"),
+    ("BAYERISCHE MOTOREN WERKE AG   S", "Bayerische Motoren Werke"),
+    ("UNICREDIT", "Unicredit"),
+    ("BANCO BPM", "Banco BPM"),
 ])
 def test_normalize_company_name(raw, expected):
     assert normalize_company_name(raw) == expected
@@ -101,7 +105,7 @@ def test_failed_feed_falls_back_to_symbol_search_with_relevance_filter():
 def test_european_listing_uses_name_from_quotes():
     search = Search({
         "UCG.MI": {"news": [], "quotes": [{"symbol": "UCG.MI", "shortname": "UNICREDIT", "longname": "UniCredit S.p.A."}]},
-        "UNICREDIT": {"news": [
+        "Unicredit": {"news": [
             flat("RBC downgrades Commerzbank on rising execution risk from UniCredit plan"),
             flat("European banks rally on rate outlook"),
         ], "quotes": []},
@@ -111,7 +115,7 @@ def test_european_listing_uses_name_from_quotes():
         "RBC downgrades Commerzbank on rising execution risk from UniCredit plan"
     ]
     assert result.items[0].evidence.metadata["news_channel"] == "SEARCH_NAME"
-    assert search.queries == ["UCG.MI", "UNICREDIT"]
+    assert search.queries == ["UCG.MI", "Unicredit"]
 
 
 def test_request_company_names_take_precedence():
@@ -158,3 +162,38 @@ def test_frontier_aliases_include_normalized_names():
     ]})
     assert "Drägerwerk" in aliases["XETRA:DRW3"]
     assert "UniCredit" in aliases["BIT:UCG"]
+
+
+def test_european_listing_falls_back_to_base_symbol():
+    # Live 2026-10-05: "Bayerische Motoren Werke" returned no news; "BMW" does.
+    search = Search({
+        "BMW.DE": {"news": [], "quotes": [{"symbol": "BMW.DE", "shortname": "BAYERISCHE MOTOREN WERKE AG   S"}]},
+        "Bayerische Motoren Werke": {"news": [], "quotes": []},
+        "BMW": {"news": [flat("BMW backs new 3 Series with EUR2bn German investment"),
+                         flat("Mercedes trims outlook")], "quotes": []},
+    })
+    result = fetch(YahooNewsEvidenceProvider(failing_feed, search_loader=search), "BMW.DE")
+    assert [item.metadata["headline"] for item in result.items] == [
+        "BMW backs new 3 Series with EUR2bn German investment"
+    ]
+    assert result.items[0].evidence.metadata["news_channel"] == "SEARCH_BASE_SYMBOL"
+    assert search.queries == ["BMW.DE", "Bayerische Motoren Werke", "BMW"]
+
+
+def test_yahoo_upper_case_short_name_is_searched_in_title_case():
+    search = Search({
+        "UCG.MI": {"news": [], "quotes": [{"symbol": "UCG.MI", "shortname": "UNICREDIT"}]},
+        "Unicredit": {"news": [flat("UniCredit raises stake in Commerzbank")], "quotes": []},
+    })
+    result = fetch(YahooNewsEvidenceProvider(failing_feed, search_loader=search), "UCG.MI")
+    assert len(result.items) == 1
+    assert search.queries == ["UCG.MI", "Unicredit"]
+
+
+def test_relevant_items_outside_the_window_report_channels():
+    old = flat("Banco BPM board meets", hours=24 * 45)
+    search = Search({"BAMI.MI": {"news": [], "quotes": []}, "Banco Bpm": {"news": [old], "quotes": []}})
+    result = fetch(YahooNewsEvidenceProvider(failing_feed, search_loader=search), "BAMI.MI",
+                   company_names=["Banco Bpm"])
+    assert result.status is EvidenceFetchStatus.NO_DATA
+    assert result.metadata["news_channels"]["SEARCH_NAME"] == "OK:1"
