@@ -13,7 +13,7 @@
 | Active checkpoint | E2E-S4.0A — First Complete E2E Target — chain complete live; first opportunity pending the score gate (§26) |
 | Measurement | E2E-S4.0B — Shadow Ledger — IMPLEMENTED, collecting outcome evidence (§25) |
 | Validation | `scripts/Invoke-Stage4Validation.ps1`; CI `offline-regression` (§23) |
-| Regression baseline | 1767 tests and 162 subtests (Linux); 1766 passed + 1 POSIX-only skip on Windows. Canonical `tests/` collection via `pytest.ini`; the former 1620 counted 18 duplicates |
+| Regression baseline | 1789 tests and 162 subtests (Linux); 1788 passed + 1 POSIX-only skip on Windows. Canonical `tests/` collection via `pytest.ini`; the former 1620 counted 18 duplicates |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -1223,6 +1223,7 @@ software never promotes research to `COMPLETE`.
 | AI-8C.2-R2 | Context gaps, supplied facts, research confidence, bank fundamentals | ACCEPTED 2026-09-30 | `docs/AI-8C.2-R2-CONTEXT-GAPS-CONFIDENCE.md` |
 | AI-8C.2-R3 | Fundamental freshness follows the reporting cycle | ACCEPTED 2026-09-30 | `docs/AI-8C.2-R3-FUNDAMENTAL-REPORTING-CYCLE.md` |
 | AI-8C.3-R2.2 | Shared, direction-free company assessment; SHORT re-enabled; model-output tolerance | ACCEPTED 2026-09-30 / 2026-10-01 | `docs/AI-8C.3-R2.2-SHARED-COMPANY-ASSESSMENT.md` |
+| AI-8C.2-R4 | Yahoo news through ticker feed, symbol search and name search; outage detected | IMPLEMENTED 2026-10-05, live acceptance pending | `docs/AI-8C.2-R4-NEWS-CHANNELS.md` |
 
 Subsections below are in chronological order and keep the original
 acceptance notes.

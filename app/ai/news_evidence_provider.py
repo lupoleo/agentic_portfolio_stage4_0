@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from hashlib import sha256
-from typing import Any, Callable
+import logging
+import re
+from typing import Any, Callable, Iterator
 
 from app.ai.evidence_provider import (
     EvidenceFetchResult,
@@ -18,8 +21,71 @@ from app.ai.research_service import ResearchEvidence
 
 
 NewsLoader = Callable[[str], Any]
+# AI-8C.2-R4: query -> {"news": [...], "quotes": [...]} (yfinance Search).
+SearchLoader = Callable[[str], dict[str, Any]]
 
-NEWS_SELECTION_POLICY_VERSION = "yahoo-news-selection-v2-canonical"
+NEWS_SELECTION_POLICY_VERSION = "yahoo-news-selection-v3-multichannel"
+
+# Legal-form tokens removed from company names before searching/matching.
+_LEGAL_SUFFIXES = (
+    "aktiengesellschaft", "kommanditgesellschaft auf aktien", "& co. kgaa",
+    "& co kgaa", "kgaa", "s.p.a.", "s.p.a", "spa", "s.a.", "s.a", "sa", "ag",
+    "se", "n.v.", "nv", "plc", "inc.", "inc", "corporation", "corp.", "corp",
+    "co.", "ltd.", "ltd", "limited", "holding", "holdings", "adr", "& co.",
+    "& co", "rg-a", "rg-b", "rg-c", "cl a", "cl b", "class a", "class b",
+)
+
+
+def normalize_company_name(name: str | None) -> str | None:
+    """Company name as used in headlines: no legal form, no share class."""
+    if not name:
+        return None
+    text = re.sub(r"\([^)]*\)", " ", str(name))
+    text = re.sub(r"\s+", " ", text).strip(" ,.-")
+    changed = True
+    while changed and text:
+        changed = False
+        lowered = text.casefold()
+        for suffix in _LEGAL_SUFFIXES:
+            if lowered.endswith(" " + suffix) or lowered == suffix:
+                text = text[: len(text) - len(suffix)].rstrip(" ,.-&")
+                changed = True
+                break
+    text = re.sub(r"\s+", " ", text).strip(" ,.-&")
+    return text if len(text) >= 3 else None
+
+
+def mentions(text: str, aliases: list[str]) -> bool:
+    """Whole-word, case-insensitive mention of any alias."""
+    for alias in aliases:
+        alias = (alias or "").strip()
+        if len(alias) < 2:
+            continue
+        pattern = rf"(?<![A-Za-z0-9]){re.escape(alias)}(?![A-Za-z0-9])"
+        if re.search(pattern, text, re.IGNORECASE):
+            return True
+    return False
+
+
+class _ErrorCapture(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__(level=logging.ERROR)
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.messages.append(record.getMessage())
+
+
+@contextmanager
+def _capture_yfinance_errors() -> Iterator[_ErrorCapture]:
+    """yfinance logs a failed news request and returns an empty list."""
+    handler = _ErrorCapture()
+    logger = logging.getLogger("yfinance")
+    logger.addHandler(handler)
+    try:
+        yield handler
+    finally:
+        logger.removeHandler(handler)
 
 
 class YahooNewsEvidenceProvider(EvidenceProvider):
@@ -33,9 +99,19 @@ class YahooNewsEvidenceProvider(EvidenceProvider):
         self,
         news_loader: NewsLoader | None = None,
         *,
+        search_loader: SearchLoader | None = None,
         default_lookback_days: int = 30,
     ) -> None:
         self._news_loader = news_loader or self._default_news_loader
+        # AI-8C.2-R4: an injected ticker loader alone keeps the historical
+        # single-channel behaviour (tests, replays). The default provider
+        # adds the Yahoo search channels.
+        if search_loader is not None:
+            self._search_loader: SearchLoader | None = search_loader
+        elif news_loader is None:
+            self._search_loader = self._default_search_loader
+        else:
+            self._search_loader = None
         self.default_lookback_days = default_lookback_days
 
     @property
@@ -45,22 +121,34 @@ class YahooNewsEvidenceProvider(EvidenceProvider):
     def fetch(self, request: EvidenceRequest) -> EvidenceFetchResult:
         fetched_at = datetime.now(timezone.utc)
 
-        try:
-            raw_items = self._news_loader(request.ticker)
-        except Exception as exc:
-            raise EvidenceProviderResponseError(
-                f"Yahoo news retrieval failed for {request.ticker}: {exc}"
-            ) from exc
-
-        normalized = self._normalize_collection(raw_items)
+        normalized, channel_report, item_channels = self._collect(request)
         if not normalized:
+            attempted = {
+                name: state for name, state in channel_report.items()
+                if name != "SEARCH_ALIASES"
+            }
+            failed = [name for name, state in attempted.items() if state.startswith("FAILED")]
+            if failed and len(failed) == len(attempted):
+                raise EvidenceProviderResponseError(
+                    f"Yahoo news channels down for {request.ticker}: "
+                    + "; ".join(f"{name}={channel_report[name]}" for name in failed)
+                )
+            warnings = ["No usable news/event evidence returned"]
+            warnings.extend(
+                f"News channel {name} {state}" for name, state in channel_report.items()
+                if state.startswith("FAILED")
+            )
             return EvidenceFetchResult(
                 provider=self.provider_name,
                 ticker=request.ticker,
                 status=EvidenceFetchStatus.NO_DATA,
                 items=[],
-                warnings=["No usable news/event evidence returned"],
+                warnings=warnings,
                 fetched_at=fetched_at,
+                metadata={
+                    "selection_policy_version": NEWS_SELECTION_POLICY_VERSION,
+                    "news_channels": channel_report,
+                },
             )
 
         cutoff = None
@@ -77,6 +165,7 @@ class YahooNewsEvidenceProvider(EvidenceProvider):
             parsed = self._parse_item(raw, request.ticker, fetched_at)
             if parsed is None:
                 continue
+            parsed["channel"] = item_channels.get(id(raw), "TICKER_FEED")
 
             published_at = parsed["published_at"]
             if request.as_of is not None:
@@ -127,11 +216,114 @@ class YahooNewsEvidenceProvider(EvidenceProvider):
                 "selection_policy_version": NEWS_SELECTION_POLICY_VERSION,
                 "normalized_candidate_count": len(normalized),
                 "eligible_candidate_count": len(candidates),
+                "news_channels": channel_report,
                 "selected_evidence_ids": [
                     item.evidence.evidence_id for item in output
                 ],
             },
         )
+
+    def _collect(
+        self, request: EvidenceRequest
+    ) -> tuple[list[dict[str, Any]], dict[str, str], dict[int, str]]:
+        """Gather raw items from the ticker feed, then the search channels.
+
+        Returns the raw items, a per-channel state and the channel of each
+        raw item (keyed by object identity).
+        """
+        report: dict[str, str] = {}
+        channels: dict[int, str] = {}
+
+        # 1. Ticker feed: authoritative when it works.
+        try:
+            with _capture_yfinance_errors() as captured:
+                raw = self._news_loader(request.ticker)
+            feed = self._normalize_collection(raw)
+            if captured.messages and not feed:
+                report["TICKER_FEED"] = "FAILED:" + captured.messages[0][:120]
+            else:
+                report["TICKER_FEED"] = f"OK:{len(feed)}"
+        except EvidenceProviderResponseError:
+            raise
+        except Exception as exc:
+            if self._search_loader is None:
+                raise EvidenceProviderResponseError(
+                    f"Yahoo news retrieval failed for {request.ticker}: {exc}"
+                ) from exc
+            feed = []
+            report["TICKER_FEED"] = f"FAILED:{type(exc).__name__}"
+        if feed or self._search_loader is None:
+            for item in feed:
+                channels[id(item)] = "TICKER_FEED"
+            return feed, report, channels
+
+        # 2. Search by symbol: news for US listings, and the company names.
+        ticker = request.ticker.strip().upper()
+        base_symbol = ticker.split(".", 1)[0]
+        names: list[str] = []
+        for value in (request.metadata or {}).get("company_names", []) or []:
+            normalized = normalize_company_name(value)
+            if normalized and normalized.casefold() not in {n.casefold() for n in names}:
+                names.append(normalized)
+        searched: list[dict[str, Any]] = []
+        try:
+            payload = self._search_loader(ticker) or {}
+            symbol_news = self._normalize_collection(payload.get("news"))
+            report["SEARCH_SYMBOL"] = f"OK:{len(symbol_news)}"
+            for item in symbol_news:
+                channels[id(item)] = "SEARCH_SYMBOL"
+            searched.extend(symbol_news)
+            for quote in payload.get("quotes") or []:
+                if not isinstance(quote, dict) or str(quote.get("symbol", "")).upper() != ticker:
+                    continue
+                for key in ("shortname", "longname"):
+                    normalized = normalize_company_name(quote.get(key))
+                    if normalized and normalized.casefold() not in {n.casefold() for n in names}:
+                        names.append(normalized)
+        except Exception as exc:
+            report["SEARCH_SYMBOL"] = f"FAILED:{type(exc).__name__}"
+
+        aliases = [ticker, base_symbol, *names]
+        relevant = [item for item in searched if self._is_relevant(item, aliases)]
+
+        # 3. Search by company name, when the symbol found nothing relevant.
+        if not relevant and names:
+            name = names[0]
+            try:
+                payload = self._search_loader(name) or {}
+                name_news = self._normalize_collection(payload.get("news"))
+                report["SEARCH_NAME"] = f"OK:{len(name_news)}"
+                for item in name_news:
+                    channels[id(item)] = "SEARCH_NAME"
+                relevant.extend(
+                    item for item in name_news if self._is_relevant(item, aliases)
+                )
+            except Exception as exc:
+                report["SEARCH_NAME"] = f"FAILED:{type(exc).__name__}"
+        report["SEARCH_ALIASES"] = "|".join(aliases)
+        return relevant, report, channels
+
+    def _is_relevant(self, raw: dict[str, Any], aliases: list[str]) -> bool:
+        content = raw.get("content")
+        data = content if isinstance(content, dict) else raw
+        text = " ".join(
+            value for value in (
+                self._first_text(data, "title"),
+                self._first_text(data, "summary", "description", "snippet"),
+            ) if value
+        )
+        return bool(text) and mentions(text, aliases)
+
+    @staticmethod
+    def _default_search_loader(query: str) -> dict[str, Any]:
+        try:
+            import yfinance as yf
+        except ImportError as exc:
+            raise EvidenceProviderResponseError(
+                "yfinance is required for YahooNewsEvidenceProvider"
+            ) from exc
+        search = yf.Search(query, max_results=8, news_count=20, raise_errors=True)
+        return {"news": list(search.news or []), "quotes": list(search.quotes or [])}
 
     @staticmethod
     def _default_news_loader(ticker: str) -> Any:
@@ -318,7 +510,11 @@ class YahooNewsEvidenceProvider(EvidenceProvider):
             source_url=parsed["url"],
             retrieved_at=fetched_at,
             published_at=published_at,
-            metadata={"ticker": ticker, "headline": parsed["title"]},
+            metadata={
+                "ticker": ticker,
+                "headline": parsed["title"],
+                "news_channel": parsed.get("channel", "TICKER_FEED"),
+            },
         )
 
         evidence = ResearchEvidence(
@@ -331,6 +527,7 @@ class YahooNewsEvidenceProvider(EvidenceProvider):
                 "source_id": source_id,
                 "publisher": parsed["publisher"],
                 "url": parsed["url"],
+                "news_channel": parsed.get("channel", "TICKER_FEED"),
             },
         )
 

@@ -16,7 +16,10 @@ from app.ai.evidence_provider import (
     EvidenceProviderResponseError,
     EvidenceRequest,
 )
-from app.ai.news_evidence_provider import YahooNewsEvidenceProvider
+from app.ai.news_evidence_provider import (
+    YahooNewsEvidenceProvider,
+    normalize_company_name,
+)
 from app.e2e.stage4_contracts import (
     Stage4Mode,
     Stage4Model,
@@ -257,7 +260,16 @@ def aliases_from_eligibility(
         if not exchange or not symbol:
             continue
         aliases = []
-        for value in (symbol, row.get("name"), row.get("instrument_name")):
+        # AI-8C.2-R4: headlines name companies without their legal form
+        # ("UniCredit", not "UniCredit S.p.A."), so the normalized names are
+        # aliases too.
+        for value in (
+            symbol,
+            row.get("name"),
+            row.get("instrument_name"),
+            normalize_company_name(row.get("name")),
+            normalize_company_name(row.get("instrument_name")),
+        ):
             text = str(value or "").strip()
             if text and text.casefold() not in {v.casefold() for v in aliases}:
                 aliases.append(text)
@@ -561,6 +573,10 @@ class NewsSensitiveFrontierRanker:
                     as_of=session.as_of,
                     kinds=[EvidenceKind.NEWS],
                     max_items=policy.max_news_items,
+                    metadata={"company_names": [
+                        alias for alias in aliases
+                        if alias.strip().upper() != listing.symbol.strip().upper()
+                    ]},
                 ))
                 if not isinstance(result, EvidenceFetchResult):
                     last_diagnostic = "INVALID_NEWS_PROVIDER_RESPONSE"

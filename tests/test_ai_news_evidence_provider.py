@@ -188,7 +188,7 @@ def test_selection_policy_provenance_is_persisted():
         EvidenceRequest(ticker="PATH")
     )
     assert result.metadata["selection_policy_version"] == (
-        "yahoo-news-selection-v2-canonical"
+        "yahoo-news-selection-v3-multichannel"
     )
     assert result.metadata["selected_evidence_ids"] == [
         x.evidence.evidence_id for x in result.items
