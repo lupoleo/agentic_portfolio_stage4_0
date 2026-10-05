@@ -5,7 +5,7 @@
 | Type | Revision of a reopened contract (AI-8C.2 evidence: news provider) |
 | Also affected | E2E-S4.0A.2 news-sensitive frontier (aliases, request metadata) |
 | Branch | `ai-8c2-r4-news-channels` |
-| Status | IMPLEMENTED — LIVE ACCEPTANCE PENDING |
+| Status | ACCEPTED 2026-10-05 |
 | Approved by | Operator, 2026-10-05 |
 
 ## 1. Reason
@@ -101,3 +101,37 @@ are searched in title case; listings outside the US also try their base
 symbol ("BMW", "SAP", "ENI") when the name search finds nothing relevant
 (`SEARCH_BASE_SYMBOL`); a `NO_DATA` caused by relevant items outside the
 30-day window now reports the channels too.
+
+## 8. Acceptance evidence (2026-10-05)
+
+Provider check without scanner names (the research condition), after the
+follow-up fix: AAPL 4 and MSFT 7 items (`SEARCH_SYMBOL`); UCG.MI 10, SAP.DE 12,
+BMW.DE 8 and ENI.MI 13 (`SEARCH_NAME`); BAMI.MI none, its relevant items being
+older than the 30-day window. Before R4: news only for AAPL, MSFT and ENI.MI.
+
+Live replenishment `s4a1-75b0cf0919ffd3f8dbfc83f2` on root
+`s4a-53afc7eaa122d144cb96f16f` (portfolio snapshot of 2026-10-04), production
+database, two waves:
+
+| Measure | 2026-10-04 (feed down, before R4) | 2026-10-05 (R4) |
+| --- | --- | --- |
+| Frontier ranking mode | `SEEDED_FALLBACK` | `MIXED` |
+| Qualified by news | 0 of 480 | 40 of 254 |
+| Fallback listings | 48 | 8 |
+| Wave 1 | NASDAQ:KMDA, XETRA:1F80 (blocked: liquidity, prices) | BIT:ENEL, BIT:LDO |
+| Wave 2 | NYSE:CNF, XETRA:DAM (blocked/review) | NASDAQ:GIFT, XETRA:4AB |
+
+Research bundles of ENEL.MI and LDO.MI carried 9–10 NEWS items each and no
+news warning; all AI-8C.2 and AI-8C.3 checks passed; no processing failure;
+zero broker orders, portfolio mutations and automatic executions. All four
+research were `PARTIAL`; confidence-adjusted scores 51.0–53.9.
+
+Findings for follow-up:
+
+- The remaining blocking gaps are mostly forward-looking items filed as
+  unknowns ("impact of M&A activity on long-term margins", "exact future
+  earnings trajectory") and sector multiples phrased without a comparison
+  marker ("sector-specific pricing multiples not disclosed").
+- ENEL.MI LONG and SHORT received two company assessments (identical values)
+  because the analyst snapshot's current price changed between the two
+  bundles, changing the content-addressed evidence IDs used as cache key.
