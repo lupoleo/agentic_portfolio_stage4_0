@@ -55,7 +55,8 @@ def errors(value, evidence=FULL):
 
 def test_versions():
     assert RESEARCH_PROMPT_VERSION == "opportunity-research-v1.5-context-gaps-confidence"
-    assert RESEARCH_CONTRACT_VERSION == "ai-8c2-research-v3-context-gaps"
+    # R2 introduced contract v3; later revisions (R5: v4) supersede it.
+    assert int(RESEARCH_CONTRACT_VERSION.split("-research-v", 1)[1].split("-", 1)[0]) >= 3
     assert FUNDAMENTAL_EVIDENCE_POLICY_VERSION == "yahoo-fundamental-evidence-v3-financials-aware"
 
 

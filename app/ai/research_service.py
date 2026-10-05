@@ -36,7 +36,7 @@ from app.ai.research_semantics import (
 
 
 RESEARCH_PROMPT_VERSION = "opportunity-research-v1.5-context-gaps-confidence"
-RESEARCH_CONTRACT_VERSION = "ai-8c2-research-v3-context-gaps"
+RESEARCH_CONTRACT_VERSION = "ai-8c2-research-v4-forward-framing"
 
 # AI-7D.4D.3d: hard deterministic budgets for the repair input.
 # These protect the local 4096-token model from pathological initial outputs.
@@ -259,6 +259,7 @@ class ResearchService:
 
         inferences = [inference]
         initial_research_confidence = output.research_confidence
+        initial_research_status = output.research_status.value
         coverage = self.coverage_validator.validate(output, evidence)
         semantic = self.semantic_evaluator.evaluate(output, evidence)
         missing_required_contexts = self._missing_required_context_fields(
@@ -266,6 +267,7 @@ class ResearchService:
             required_context_fields,
         )
         confidence_repair_requested = self._confidence_incoherent(coverage)
+        forward_repair_requested = self._forward_items_in_unknowns(coverage)
         repair_attempted = False
         deterministic_status_normalized = False
         deterministic_unknowns_canonicalized = False
@@ -276,11 +278,19 @@ class ResearchService:
             or not semantic.is_valid
             or missing_required_contexts
             or confidence_repair_requested
+            or forward_repair_requested
         ):
             repair_attempted = True
             repairable_fields = self._repairable_fields(coverage, semantic)
             if confidence_repair_requested:
                 repairable_fields.add("research_confidence")
+            if forward_repair_requested:
+                repairable_fields.update({
+                    "unknowns",
+                    "forward_uncertainties",
+                    "research_status",
+                    "requires_additional_research",
+                })
             repairable_fields.update(
                 self._context_presence_repairable_fields(
                     missing_required_contexts
@@ -499,6 +509,11 @@ class ResearchService:
                     self.coverage_validator.evidence_blob(evidence),
                 ),
                 "initial_research_confidence": initial_research_confidence,
+                "forward_reclassification_requested": forward_repair_requested,
+                "initial_research_status": initial_research_status,
+                "forward_framed_unknowns": (
+                    self.coverage_validator.forward_framed_unknowns(output)
+                ),
                 "research_confidence_repaired": (
                     confidence_repair_requested
                     and output.research_confidence != initial_research_confidence
@@ -1092,6 +1107,7 @@ class ResearchService:
             f"{self._semantic_repair_instructions(semantic)}\n\n"
             f"{self._context_presence_repair_instructions(allowed_fields)}\n\n"
             f"{self._confidence_repair_instructions(coverage, allowed_fields)}\n\n"
+            f"{self._forward_repair_instructions(coverage, allowed_fields)}\n\n"
             "SUPPLIED EVIDENCE\n"
             f"{evidence_block}\n\n"
             "PREVIOUS STRUCTURED OUTPUT\n"
@@ -1103,6 +1119,36 @@ class ResearchService:
         return any(
             issue.code.value == "RESEARCH_CONFIDENCE_INCOHERENT"
             for issue in coverage.issues
+        )
+
+    @staticmethod
+    def _forward_items_in_unknowns(coverage: ResearchCoverageReport) -> bool:
+        return any(
+            issue.code.value == "FORWARD_ITEMS_IN_UNKNOWNS"
+            for issue in coverage.issues
+        )
+
+    @classmethod
+    def _forward_repair_instructions(
+        cls,
+        coverage: ResearchCoverageReport,
+        allowed_fields: set[str],
+    ) -> str:
+        if "forward_uncertainties" not in allowed_fields or not cls._forward_items_in_unknowns(coverage):
+            return ""
+        messages = [
+            issue.message for issue in coverage.issues
+            if issue.code.value == "FORWARD_ITEMS_IN_UNKNOWNS"
+        ]
+        return (
+            "FORWARD UNCERTAINTY RECLASSIFICATION\n"
+            + "\n".join(f"- {message}" for message in messages)
+            + "\n- Move any future outcome from unknowns to forward_uncertainties;"
+            " keep in unknowns only facts knowable at the evidence date.\n"
+            "- Then reassess research_status and requires_additional_research"
+            " under rules U4, 16 and 17: forward uncertainties never by"
+            " themselves require additional research or prevent COMPLETE;"
+            " keep PARTIAL only if a material as-of fact remains missing."
         )
 
     @classmethod

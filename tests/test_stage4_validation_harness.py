@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from app.ai.research_service import RESEARCH_CONTRACT_VERSION
 from tools import stage4_validation as harness
 
 
@@ -307,7 +308,7 @@ def test_c2r1_inspection_reports_gaps_and_contract(tmp_path):
             "evidence_quality": "HIGH", "unknowns": [],
             "forward_uncertainties": ["Long-term impact of new contracts on margins"],
             "research_confidence": 0.85,
-            "metadata": {"research_contract": "ai-8c2-research-v3-context-gaps"},
+            "metadata": {"research_contract": RESEARCH_CONTRACT_VERSION},
         }
         connection.execute(
             "insert into opportunity_research values (?, ?)",
