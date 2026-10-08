@@ -36,7 +36,7 @@ from app.ai.research_semantics import (
 
 
 RESEARCH_PROMPT_VERSION = "opportunity-research-v1.5-context-gaps-confidence"
-RESEARCH_CONTRACT_VERSION = "ai-8c2-research-v4-forward-framing"
+RESEARCH_CONTRACT_VERSION = "ai-8c2-research-v5-named-gaps"
 
 # AI-7D.4D.3d: hard deterministic budgets for the repair input.
 # These protect the local 4096-token model from pathological initial outputs.
@@ -268,6 +268,7 @@ class ResearchService:
         )
         confidence_repair_requested = self._confidence_incoherent(coverage)
         forward_repair_requested = self._forward_items_in_unknowns(coverage)
+        named_gap_repair_requested = self._partial_without_named_gap(coverage)
         repair_attempted = False
         deterministic_status_normalized = False
         deterministic_unknowns_canonicalized = False
@@ -279,6 +280,7 @@ class ResearchService:
             or missing_required_contexts
             or confidence_repair_requested
             or forward_repair_requested
+            or named_gap_repair_requested
         ):
             repair_attempted = True
             repairable_fields = self._repairable_fields(coverage, semantic)
@@ -288,6 +290,12 @@ class ResearchService:
                 repairable_fields.update({
                     "unknowns",
                     "forward_uncertainties",
+                    "research_status",
+                    "requires_additional_research",
+                })
+            if named_gap_repair_requested:
+                repairable_fields.update({
+                    "unknowns",
                     "research_status",
                     "requires_additional_research",
                 })
@@ -510,6 +518,7 @@ class ResearchService:
                 ),
                 "initial_research_confidence": initial_research_confidence,
                 "forward_reclassification_requested": forward_repair_requested,
+                "named_gap_reassessment_requested": named_gap_repair_requested,
                 "initial_research_status": initial_research_status,
                 "forward_framed_unknowns": (
                     self.coverage_validator.forward_framed_unknowns(output)
@@ -916,6 +925,19 @@ class ResearchService:
         coverage_codes = {issue.code.value for issue in coverage.errors}
         semantic_codes = {issue.code.value for issue in semantic.errors}
 
+        # Case C (AI-8C.2-R6): the repair left PARTIAL without requiring
+        # additional research and nothing else is wrong. PARTIAL is kept and
+        # the flag is made coherent; this never promotes the status.
+        if (
+            output.research_status == ResearchStatus.PARTIAL
+            and coverage.is_valid
+            and semantic_codes == {"PARTIAL_WITHOUT_MORE_RESEARCH"}
+        ):
+            return (
+                output.model_copy(update={"requires_additional_research": True}),
+                True,
+            )
+
         if not semantic.useful_analysis:
             return output, False
 
@@ -1108,6 +1130,7 @@ class ResearchService:
             f"{self._context_presence_repair_instructions(allowed_fields)}\n\n"
             f"{self._confidence_repair_instructions(coverage, allowed_fields)}\n\n"
             f"{self._forward_repair_instructions(coverage, allowed_fields)}\n\n"
+            f"{self._named_gap_repair_instructions(coverage, allowed_fields)}\n\n"
             "SUPPLIED EVIDENCE\n"
             f"{evidence_block}\n\n"
             "PREVIOUS STRUCTURED OUTPUT\n"
@@ -1126,6 +1149,37 @@ class ResearchService:
         return any(
             issue.code.value == "FORWARD_ITEMS_IN_UNKNOWNS"
             for issue in coverage.issues
+        )
+
+    @staticmethod
+    def _partial_without_named_gap(coverage: ResearchCoverageReport) -> bool:
+        return any(
+            issue.code.value == "PARTIAL_WITHOUT_NAMED_GAP"
+            for issue in coverage.issues
+        )
+
+    @classmethod
+    def _named_gap_repair_instructions(
+        cls,
+        coverage: ResearchCoverageReport,
+        allowed_fields: set[str],
+    ) -> str:
+        if "unknowns" not in allowed_fields or not cls._partial_without_named_gap(coverage):
+            return ""
+        messages = [
+            issue.message for issue in coverage.issues
+            if issue.code.value == "PARTIAL_WITHOUT_NAMED_GAP"
+        ]
+        return (
+            "PARTIAL STATUS REASSESSMENT\n"
+            + "\n".join(f"- {message}" for message in messages)
+            + "\n- If a specific fact knowable at the evidence date is missing and"
+            " material to the thesis, add it to unknowns, keep research_status"
+            " PARTIAL and set requires_additional_research=true.\n"
+            "- If no such fact is missing, set research_status COMPLETE and"
+            " requires_additional_research=false.\n"
+            "- Do not invent missing facts and do not list future outcomes as"
+            " unknowns."
         )
 
     @classmethod

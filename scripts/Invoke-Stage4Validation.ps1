@@ -265,6 +265,7 @@ finally {
             foreach ($item in @($row.forward_uncertainties)) { if ($item) { $md.Add("    - forward: $item") } }
             foreach ($item in @($row.material_gaps)) { if ($item) { $md.Add("    - GAP (blocks COMPLETE): $item") } }
             foreach ($item in @($row.context_gaps)) { if ($item) { $md.Add("    - context gap (non-blocking): $item") } }
+            if ($row.forward_reclassification_requested -or $row.named_gap_reassessment_requested) { $md.Add("    - status reassessment (forward=$($row.forward_reclassification_requested), named-gap=$($row.named_gap_reassessment_requested)): $($row.initial_research_status) -> $($row.research_status)") }
             if ($row.research_confidence_repaired) { $md.Add("    - research_confidence repaired: $($row.initial_research_confidence) -> $($row.research_confidence)") }
         }
         foreach ($row in @($inspection.scores)) {

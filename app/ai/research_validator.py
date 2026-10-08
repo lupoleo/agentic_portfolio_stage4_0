@@ -29,6 +29,8 @@ class ResearchCoverageCode(str, Enum):
     RESEARCH_CONFIDENCE_INCOHERENT = "RESEARCH_CONFIDENCE_INCOHERENT"
     # AI-8C.2-R5: warning that triggers a field-scoped reclassification repair.
     FORWARD_ITEMS_IN_UNKNOWNS = "FORWARD_ITEMS_IN_UNKNOWNS"
+    # AI-8C.2-R6: warning that triggers a field-scoped status reassessment.
+    PARTIAL_WITHOUT_NAMED_GAP = "PARTIAL_WITHOUT_NAMED_GAP"
 
 
 @dataclass(frozen=True)
@@ -238,6 +240,26 @@ class ResearchCoverageValidator:
                 ResearchCoverageCode.FORWARD_ITEMS_IN_UNKNOWNS,
                 ResearchCoverageSeverity.WARNING,
                 "No material as-of fact is missing; " + detail,
+            ))
+
+        # AI-8C.2-R6: a PARTIAL research that names no missing as-of fact and
+        # no future outcome gives no reason for PARTIAL. The model is asked to
+        # name the missing fact or reassess the status. The model decides.
+        elif (
+            output.research_status == ResearchStatus.PARTIAL
+            and output.evidence_quality in (EvidenceQuality.MEDIUM, EvidenceQuality.HIGH)
+            and not material_unknowns
+        ):
+            listed = list(output.unknowns or [])
+            detail = (
+                "the listed unknowns are context gaps only: " + "; ".join(listed[:5])
+                if listed
+                else "no unknowns are listed"
+            )
+            issues.append(ResearchCoverageIssue(
+                ResearchCoverageCode.PARTIAL_WITHOUT_NAMED_GAP,
+                ResearchCoverageSeverity.WARNING,
+                "PARTIAL names no missing as-of fact and no future outcome; " + detail,
             ))
 
         for value in output.contradictory_evidence or []:
