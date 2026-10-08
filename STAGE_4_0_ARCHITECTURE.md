@@ -13,7 +13,7 @@
 | Active checkpoint | E2E-S4.0A — First Complete E2E Target — chain complete live; first opportunity pending the score gate (§26) |
 | Measurement | E2E-S4.0B — Shadow Ledger — IMPLEMENTED, collecting outcome evidence (§25) |
 | Validation | `scripts/Invoke-Stage4Validation.ps1`; CI `offline-regression` (§23) |
-| Regression baseline | 1816 tests and 162 subtests (Linux); 1815 passed + 1 POSIX-only skip on Windows. Canonical `tests/` collection via `pytest.ini`; the former 1620 counted 18 duplicates |
+| Regression baseline | 1827 tests and 162 subtests (Linux); 1826 passed + 1 POSIX-only skip on Windows. Canonical `tests/` collection via `pytest.ini`; the former 1620 counted 18 duplicates |
 | Previous architecture | `STAGE_3_0_ARCHITECTURE.md` — retained as historical baseline |
 | Previous demo roadmap | `CIO_DEMO_ROADMAP.md` — retained as historical implementation record |
 
@@ -399,7 +399,11 @@ block.
 - Unknowns with explicit forward framing are future outcomes, not gaps; a
   `PARTIAL` research left without material gaps is offered a field-scoped
   reassessment by the model (AI-8C.2-R5).
-- Contract `ai-8c2-research-v4-forward-framing`, prompt
+- A `PARTIAL` research that names no missing as-of fact and no future outcome
+  is asked to name the missing fact or reassess its status; a `PARTIAL` left
+  without `requires_additional_research` is kept `PARTIAL` instead of failing
+  (AI-8C.2-R6).
+- Contract `ai-8c2-research-v5-named-gaps`, prompt
   `opportunity-research-v1.5-context-gaps-confidence`.
 
 ---
@@ -1228,6 +1232,7 @@ software never promotes research to `COMPLETE`.
 | AI-8C.3-R2.2 | Shared, direction-free company assessment; SHORT re-enabled; model-output tolerance | ACCEPTED 2026-09-30 / 2026-10-01 | `docs/AI-8C.3-R2.2-SHARED-COMPANY-ASSESSMENT.md` |
 | AI-8C.2-R4 | Yahoo news through ticker feed, symbol search and name search; outage detected | ACCEPTED 2026-10-05 | `docs/AI-8C.2-R4-NEWS-CHANNELS.md` |
 | AI-8C.2-R5 | Forward-framed unknowns non-blocking; model reassessment of PARTIAL without material gaps | ACCEPTED 2026-10-08 (reassessment not yet observed live) | `docs/AI-8C.2-R5-FORWARD-FRAMING.md` |
+| AI-8C.2-R6 | PARTIAL research must name what is missing; incoherent PARTIAL kept instead of failing | IMPLEMENTED 2026-10-08, live acceptance pending | `docs/AI-8C.2-R6-NAMED-GAPS.md` |
 
 Subsections below are in chronological order and keep the original
 acceptance notes.

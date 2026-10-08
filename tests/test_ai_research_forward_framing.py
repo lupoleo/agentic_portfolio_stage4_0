@@ -23,10 +23,6 @@ def partial(**overrides):
     return output(**data)
 
 
-def test_contract_version():
-    assert RESEARCH_CONTRACT_VERSION == "ai-8c2-research-v4-forward-framing"
-
-
 @pytest.mark.parametrize("item", [
     "Impact of M&A activity on long-term margins",          # ENEL.MI, 2026-10-05
     "Exact future earnings trajectory",                      # LDO.MI
