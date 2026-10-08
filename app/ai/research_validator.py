@@ -27,6 +27,8 @@ class ResearchCoverageCode(str, Enum):
     CONTRADICTION_LOOKS_LIKE_RISK = "CONTRADICTION_LOOKS_LIKE_RISK"
     # AI-8C.2-R2: warning that triggers a field-scoped confidence repair.
     RESEARCH_CONFIDENCE_INCOHERENT = "RESEARCH_CONFIDENCE_INCOHERENT"
+    # AI-8C.2-R5: warning that triggers a field-scoped reclassification repair.
+    FORWARD_ITEMS_IN_UNKNOWNS = "FORWARD_ITEMS_IN_UNKNOWNS"
 
 
 @dataclass(frozen=True)
@@ -100,6 +102,9 @@ class ResearchCoverageValidator:
         "next ", "upcoming", "impact", "effect", "reaction", "if ", "whether",
         "timing", "likelihood", "beyond", "remain", "persist", "durab",
         "success of", "ability to", "execution", "outcome", "revision",
+        # AI-8C.2-R5 live examples ("market acceptance of new valuation
+        # metrics", "volatility from macroeconomic shifts").
+        "acceptance", "macroeconomic", "shifts", "pending",
     )
     # AI-8C.2-R2 context-gap principle: a comparison or finer granularity of a
     # measure the evidence already supplies is recorded but does not block
@@ -107,6 +112,7 @@ class ResearchCoverageValidator:
     _COMPARISON_MARKERS = (
         "peer", "relative to", "versus", " vs", "benchmark", "comparison",
         "compared", "comparative", "industry average", "sector average",
+        "sector-specific",
     )
     _VALUATION_TERMS = ("valuation", "p/e", "p/b", "multiple", "ev/ebitda", "price-to")
     _VALUATION_ANCHORS = ("p/e valuation multiple", "analyst price target mean")
@@ -138,6 +144,21 @@ class ResearchCoverageValidator:
         "peer", "relative", "sector", "industry", "quarter", "trend", "growth",
         "revision", "guidance", "segment", "breakdown", "p/b", "history",
         "historical", "forward p/e",
+    )
+    # AI-8C.2-R5 (operator decision 2026-10-05): explicit forward framing in an
+    # unknown. Stricter than _FORWARD_MARKERS on purpose, because it removes a
+    # blocking gap rather than keeping one.
+    _FORWARD_FRAMING = (
+        "impact of", "effect of", "future", "sustainability", "sustainable",
+        "long-term", "long term", "trajectory", "outlook", "market reaction",
+        "market acceptance", "potential", "whether", "timing of", "ability to",
+        "success of", "outcome", "will ", "could ", "may ", "might ",
+        "risk of", "persistence", "durability", "going forward",
+    )
+    # As-of wording keeps an item a gap even with forward framing.
+    _AS_OF_MARKERS = (
+        "latest", "recent", "current", "last quarter", "last year",
+        "reported", "historical", "consensus", "guidance",
     )
     _RISK_LIKE_TERMS = (
         "overbought", "oversold", "pullback", "correction", "risk",
@@ -194,6 +215,29 @@ class ResearchCoverageValidator:
                 ResearchCoverageCode.COMPLETE_WITH_MATERIAL_UNKNOWNS,
                 ResearchCoverageSeverity.ERROR,
                 "COMPLETE contains material unknowns: " + "; ".join(material_unknowns[:5]),
+            ))
+
+        # AI-8C.2-R5: a PARTIAL research whose only open items are future
+        # outcomes (in unknowns or forward_uncertainties) and context gaps is
+        # offered a field-scoped reassessment. The model decides.
+        forward_framed = self.forward_framed_unknowns(output)
+        forward_items = list(getattr(output, "forward_uncertainties", None) or [])
+        if (
+            output.research_status == ResearchStatus.PARTIAL
+            and output.evidence_quality in (EvidenceQuality.MEDIUM, EvidenceQuality.HIGH)
+            and (forward_framed or forward_items)
+            and not material_unknowns
+        ):
+            detail = (
+                "these unknowns describe future outcomes, not missing as-of data: "
+                + "; ".join(forward_framed[:5])
+                if forward_framed
+                else "every open item is a forward uncertainty or a context gap"
+            )
+            issues.append(ResearchCoverageIssue(
+                ResearchCoverageCode.FORWARD_ITEMS_IN_UNKNOWNS,
+                ResearchCoverageSeverity.WARNING,
+                "No material as-of fact is missing; " + detail,
             ))
 
         for value in output.contradictory_evidence or []:
@@ -259,6 +303,19 @@ class ResearchCoverageValidator:
                         break
         return gaps
 
+    def forward_framed_unknowns(self, output) -> list[str]:
+        """Material unknowns that are explicitly future outcomes."""
+        framed = []
+        for item in self.material_unknowns(output):
+            low = item.lower()
+            if (
+                self._has_any(low, self._FORWARD_FRAMING)
+                and not self._has_any(low, self._GAP_MARKERS)
+                and not self._has_any(low, self._AS_OF_MARKERS)
+            ):
+                framed.append(item)
+        return framed
+
     def material_unknowns(self, output) -> list[str]:
         """Material items among unknowns (missing as-of facts)."""
         return [
@@ -287,6 +344,9 @@ class ResearchCoverageValidator:
             + self.reclassified_forward_uncertainties(output)
         )
         exempt = set(self.context_gaps(candidates, evidence_blob))
+        # AI-8C.2-R5: explicitly forward-framed unknowns are future outcomes
+        # filed in the wrong list; they do not block COMPLETE.
+        exempt.update(self.forward_framed_unknowns(output))
         return [item for item in candidates if item not in exempt]
 
     @staticmethod
