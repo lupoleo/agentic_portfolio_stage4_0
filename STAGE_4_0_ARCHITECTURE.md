@@ -1227,7 +1227,7 @@ software never promotes research to `COMPLETE`.
 | AI-8C.2-R3 | Fundamental freshness follows the reporting cycle | ACCEPTED 2026-09-30 | `docs/AI-8C.2-R3-FUNDAMENTAL-REPORTING-CYCLE.md` |
 | AI-8C.3-R2.2 | Shared, direction-free company assessment; SHORT re-enabled; model-output tolerance | ACCEPTED 2026-09-30 / 2026-10-01 | `docs/AI-8C.3-R2.2-SHARED-COMPANY-ASSESSMENT.md` |
 | AI-8C.2-R4 | Yahoo news through ticker feed, symbol search and name search; outage detected | ACCEPTED 2026-10-05 | `docs/AI-8C.2-R4-NEWS-CHANNELS.md` |
-| AI-8C.2-R5 | Forward-framed unknowns non-blocking; model reassessment of PARTIAL without material gaps | IMPLEMENTED 2026-10-05, live acceptance pending | `docs/AI-8C.2-R5-FORWARD-FRAMING.md` |
+| AI-8C.2-R5 | Forward-framed unknowns non-blocking; model reassessment of PARTIAL without material gaps | ACCEPTED 2026-10-08 (reassessment not yet observed live) | `docs/AI-8C.2-R5-FORWARD-FRAMING.md` |
 
 Subsections below are in chronological order and keep the original
 acceptance notes.

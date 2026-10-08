@@ -4,7 +4,7 @@
 | --- | --- |
 | Type | Revision of a reopened contract (AI-8C.2 research validator and repair) |
 | Branch | `ai-8c2-r5-forward-framing` |
-| Status | IMPLEMENTED — LIVE ACCEPTANCE PENDING |
+| Status | ACCEPTED — live evidence 2026-10-05/06 and 2026-10-08 (reassessment not yet observed live) |
 | Approved by | Operator, 2026-10-05 (relaxation: future outcomes filed as unknowns no longer block `COMPLETE`) |
 
 ## 1. Reason
@@ -84,3 +84,48 @@ and no promotion when the model keeps `PARTIAL`. Regression: 1,816 tests and
    material gap, all checks pass and side effects are zero.
 3. Reported, not required: the number of `COMPLETE` research and any
    opportunity.
+
+## 7. Acceptance evidence
+
+Accepted on 2026-10-08 on its safety criteria. CI `offline-regression` green.
+
+**R5 sessions of 2026-10-05 and 2026-10-06** (production database, portfolio
+snapshot of 2026-10-04; 20 research):
+
+| Status chosen by the model | Final status | Research |
+| --- | --- | ---: |
+| `COMPLETE` | `COMPLETE` | 11 |
+| `COMPLETE` | `PARTIAL` (genuine gap kept, e.g. "Impact of recent acquisitions on margins") | 6 |
+| `COMPLETE` | `INSUFFICIENT_EVIDENCE` | 1 |
+| `PARTIAL` | `PARTIAL` (blocking gaps: 2BTC.DE without fundamentals; ENEL.MI sector multiples) | 2 |
+
+**Session of 2026-10-08** (new portfolio snapshot `SNAP-20261008-150533-62ea3a`,
+root `s4a-74e012e841ae996daea492b3`, replenishment
+`s4a1-83718ca52138c4f42aa7a5aa`, waves NASDAQ:DRH + NASDAQ:TLRY and
+NASDAQ:CRUS + NYSE:FCPT): 12 hypotheses, 11 research, 5 `COMPLETE`; inspection
+verdict PASS (R1, R2 and research-contract checks); every new research uses
+`ai-8c2-research-v4-forward-framing`; no `COMPLETE` research contains a
+material gap; zero broker orders, portfolio mutations and automatic
+executions. Highest confidence-adjusted score so far: SAP.DE `NEW_LONG` 59.77
+(raw 66.75, score confidence 0.58), below the unchanged threshold of 60.
+
+| Criterion | Result |
+| --- | --- |
+| Offline regression | PASS (CI) |
+| No `COMPLETE` research with a material gap | PASS (16 of 16 across both periods) |
+| All inspection checks, zero side effects | PASS |
+| Eligible research receive the reassessment | NOT OBSERVED: no `PARTIAL` research was left with only future outcomes |
+
+The deterministic part works: future outcomes no longer block research the
+model judges complete, and genuine gaps still demote. The reassessment is
+covered offline but has not yet fired live; with news available (R4) the
+model already chooses `COMPLETE` when evidence suffices. If it keeps not
+firing it may be removed for simplicity.
+
+Finding for follow-up (AI-8C.2-R6 candidate): on 2026-10-08 both A2A.MI
+research were `PARTIAL` with HIGH quality and no gap, unknown or future
+outcome at all. `NEW_LONG` declared no further research needed and failed
+`PARTIAL_WITHOUT_MORE_RESEARCH` after its repair (`PROCESSING_FAILED`);
+`NEW_SHORT` declared further research needed without naming it and was kept
+as `PARTIAL`. Neither is eligible for the R5 reassessment, which requires a
+future outcome.
